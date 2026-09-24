@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, FlatList } from 'react-native';
 import { darkPalette } from '../theme/tokens';
 
-export default function AuctionClosedScreen({ onBack, theme = darkPalette }) {
+export default function AuctionClosedScreen({ rfq, onBack, theme = darkPalette }) {
   const scaleAnim = useRef(new Animated.Value(0.4)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
@@ -13,12 +13,21 @@ export default function AuctionClosedScreen({ onBack, theme = darkPalette }) {
     ]).start();
   }, []);
 
-  const standings = [
-    { rank: '1. Anveshan Chem', amount: '₹36.40', isWinner: true },
-    { rank: '2. Vardhan Industries', amount: '₹36.90', isWinner: false },
-    { rank: '3. Kailash Oxides', amount: '₹37.50', isWinner: false },
-    { rank: '4. Om Sai Chemicals', amount: '₹38.20', isWinner: false },
-  ];
+  const unit = rfq?.unit || 'L';
+  const rawBids = rfq?.bids || [];
+  const sortedBids = [...rawBids].sort((a, b) => Number(a.amount) - Number(b.amount));
+  const winner = sortedBids.length > 0 ? sortedBids[0] : null;
+
+  const ceiling = rfq?.ceilingPrice ? Number(rfq.ceilingPrice) : (winner ? Number(winner.amount) : 0);
+  const winnerAmount = winner ? Number(winner.amount) : 0;
+  const savingsPerUnit = ceiling > winnerAmount ? ceiling - winnerAmount : 0;
+  const savingsPercent = ceiling > 0 && savingsPerUnit > 0 ? ((savingsPerUnit / ceiling) * 100).toFixed(1) : '0.0';
+
+  const standings = sortedBids.map((b, index) => ({
+    rank: `${index + 1}. ${b.supplierName || 'Verified Supplier'}`,
+    amount: `₹${Number(b.amount).toFixed(2)}`,
+    isWinner: index === 0,
+  }));
 
   return (
     <View style={styles.container}>
@@ -29,15 +38,21 @@ export default function AuctionClosedScreen({ onBack, theme = darkPalette }) {
         </Animated.View>
 
         <Text style={[styles.kicker, { color: theme.brass }]}>AUCTION CLOSED</Text>
-        <Text style={[styles.heading, { color: theme.ink }]}>Anveshan Chem wins</Text>
+        <Text style={[styles.heading, { color: theme.ink }]} numberOfLines={1}>
+          {winner ? `${winner.supplierName} wins` : 'Auction Concluded'}
+        </Text>
 
         <View style={styles.bigNumRow}>
-          <Text style={[styles.bigNum, { color: theme.olive }]}>₹36.40</Text>
-          <Text style={[styles.unitText, { color: theme.inkDim }]}> /L</Text>
+          <Text style={[styles.bigNum, { color: theme.olive }]}>
+            {winner ? `₹${winnerAmount.toFixed(2)}` : '—'}
+          </Text>
+          <Text style={[styles.unitText, { color: theme.inkDim }]}> /{unit}</Text>
         </View>
 
         <Text style={[styles.subText, { color: theme.inkDim }]}>
-          18,000 L Hydrogen Peroxide, 50% · ₹1.60/L (4.2%) below opening ask
+          {winner
+            ? `${(rfq?.quantity || 0).toLocaleString()} ${unit} ${rfq?.commodity || 'Commodity'} · ₹${savingsPerUnit.toFixed(2)}/${unit} (${savingsPercent}%) below ceiling ask`
+            : `${rfq?.commodity || 'Requirement'} closed without winning bids.`}
         </Text>
       </View>
 
@@ -61,6 +76,11 @@ export default function AuctionClosedScreen({ onBack, theme = darkPalette }) {
               </Text>
             </View>
           )}
+          ListEmptyComponent={
+            <View style={{ paddingVertical: 18, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, color: theme.inkDim }}>No bids placed in this auction.</Text>
+            </View>
+          }
         />
       </View>
 

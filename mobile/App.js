@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as WebBrowser from 'expo-web-browser';
+
+WebBrowser.maybeCompleteAuthSession();
+
 
 import SplashScreen from './src/screens/SplashScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -12,49 +16,72 @@ import LiveAuctionRoomScreen from './src/screens/LiveAuctionRoomScreen';
 import AuctionClosedScreen from './src/screens/AuctionClosedScreen';
 import SupplierDirectoryScreen from './src/screens/SupplierDirectoryScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import BottomNavBar from './src/components/BottomNavBar';
 import WavyBackground from './src/components/WavyBackground';
+import { CustomPopupHost } from './src/components/CustomPopup';
 import { connectSocket, disconnectSocket } from './src/services/socket';
 import { lightPalette, darkPalette } from './src/theme/tokens';
 
+import api from './src/services/api';
+
 const THEME_STORAGE_KEY = 'swiftrfq_theme_mode';
+const USER_SESSION_KEY = 'swiftrfq_user_session';
 
 export default function App() {
   const [theme, setTheme] = useState(lightPalette);
+  const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
   const [screen, setScreen] = useState('SPLASH');
   const [activeRfq, setActiveRfq] = useState(null);
-
-  const [rfqs, setRfqs] = useState([
-    {
-      id: 'RFQ-8821',
-      commodity: 'Hydrogen Peroxide 50% IP Grade',
-      quantity: 18000,
-      unit: 'L',
-      ceilingPrice: 38,
-      minDecrement: 0.5,
-      durationMinutes: 240,
-      lowestBid: 36.4,
-      bids: [
-        { supplierName: 'Anveshan Chem',      amount: 36.4, timestamp: Date.now() - 360000 },
-        { supplierName: 'Vardhan Industries', amount: 36.9, timestamp: Date.now() - 900000 },
-        { supplierName: 'Kailash Oxides',     amount: 37.5, timestamp: Date.now() - 1500000 },
-        { supplierName: 'Om Sai Chemicals',   amount: 38.2, timestamp: Date.now() - 2400000 },
-      ],
-    },
-  ]);
+  const [rfqs, setRfqs] = useState([]);
 
   useEffect(() => {
-    const loadSavedTheme = async () => {
+    const loadInitialData = async () => {
+      // 1. Load theme preference
       try {
         const savedMode = await AsyncStorage.getItem(THEME_STORAGE_KEY);
         if (savedMode === 'dark') setTheme(darkPalette);
         else if (savedMode === 'light') setTheme(lightPalette);
       } catch (e) {
-        // Fallback remains lightPalette for first-time users
+        // Fallback remains lightPalette
+      }
+
+      // 2. Load persisted user session (auto-login)
+      try {
+        const savedUserStr = await AsyncStorage.getItem(USER_SESSION_KEY);
+        if (savedUserStr) {
+          const savedUser = JSON.parse(savedUserStr);
+          setUser(savedUser);
+          if (savedUser.role) {
+            setRole(savedUser.role);
+            setScreen(savedUser.role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD');
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to restore user session:', e);
+      }
+
+      // 3. Fetch live RFQs from backend API
+      try {
+        const savedUserStr = await AsyncStorage.getItem(USER_SESSION_KEY);
+        const currentUser = savedUserStr ? JSON.parse(savedUserStr) : null;
+        const rfqParams = currentUser
+          ? { buyerId: currentUser._id || currentUser.id, role: currentUser.role }
+          : {};
+        const rfqRes = await api.getRfqs(rfqParams);
+        if (rfqRes?.data && Array.isArray(rfqRes.data)) {
+          setRfqs(rfqRes.data);
+          if (rfqRes.data.length > 0) {
+            setActiveRfq(rfqRes.data[0]);
+          }
+        }
+      } catch (e) {
+        console.log('[App] Could not load RFQs from backend:', e.message);
       }
     };
-    loadSavedTheme();
+
+    loadInitialData();
     connectSocket();
     return () => disconnectSocket();
   }, []);
@@ -69,26 +96,70 @@ export default function App() {
     }
   };
 
-  const handleSplashContinue = (nextTarget) => {
-    if (nextTarget === 'INTRO') setScreen('INTRO');
-    else if (nextTarget === 'BUYER_DASHBOARD') { setRole('BUYER'); setScreen('BUYER_DASHBOARD'); }
+  const handleSplashContinue = async (nextTarget, authUser) => {
+    if (authUser) {
+      setUser(authUser);
+      const assignedRole = authUser.role || 'SUPPLIER';
+      setRole(assignedRole);
+
+      // Refresh RFQs for this specific authenticated user
+      try {
+        const rfqParams = { buyerId: authUser._id || authUser.id, role: assignedRole };
+        const rfqRes = await api.getRfqs(rfqParams);
+        if (rfqRes?.data && Array.isArray(rfqRes.data)) {
+          setRfqs(rfqRes.data);
+          if (rfqRes.data.length > 0) setActiveRfq(rfqRes.data[0]);
+        }
+      } catch (_) {}
+    }
+    if (nextTarget === 'SETTINGS') {
+      setScreen('SETTINGS');
+    } else if (nextTarget === 'INTRO') {
+      setScreen('INTRO');
+    } else if (nextTarget === 'BUYER_DASHBOARD' || authUser?.role === 'BUYER') {
+      setRole('BUYER');
+      setScreen('BUYER_DASHBOARD');
+    } else {
+      setRole('SUPPLIER');
+      setScreen('SUPPLIER_PORTAL');
+    }
   };
 
-  const handleSelectRole = (selectedRole) => {
-    setRole(selectedRole);
-    setScreen(selectedRole === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD');
+  const handleSelectRole = async (selectedRole) => {
+    // Role is permanent once account is created
+    const permanentRole = user?.role || selectedRole || 'SUPPLIER';
+    setRole(permanentRole);
+    setScreen(permanentRole === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD');
   };
 
-  const handleCreateRfq = (newRfqData) => {
-    const rfqObj = {
-      ...newRfqData,
-      id: `RFQ-${Math.floor(1000 + Math.random() * 9000)}`,
-      lowestBid: newRfqData.ceilingPrice,
-      bids: [],
-    };
-    setRfqs([rfqObj, ...rfqs]);
-    setActiveRfq(rfqObj);
-    setScreen('LIVE_ROOM');
+  const handleCreateRfq = async (newRfqData) => {
+    try {
+      const payload = {
+        ...newRfqData,
+        buyerId: user?._id || user?.id || 'usr-buyer',
+        buyerName: user?.companyName || user?.name || 'Verified Buyer',
+      };
+      const res = await api.createRfq(payload);
+      const created = res.data || {
+        ...payload,
+        id: `RFQ-${Math.floor(1000 + Math.random() * 9000)}`,
+        lowestBid: payload.ceilingPrice,
+        bids: [],
+      };
+      setRfqs((prev) => [created, ...prev]);
+      setActiveRfq(created);
+      setScreen('LIVE_ROOM');
+    } catch (err) {
+      const fallbackObj = {
+        ...newRfqData,
+        id: `RFQ-${Math.floor(1000 + Math.random() * 9000)}`,
+        lowestBid: newRfqData.ceilingPrice,
+        bids: [],
+      };
+      setRfqs((prev) => [fallbackObj, ...prev]);
+      setActiveRfq(fallbackObj);
+      setScreen('LIVE_ROOM');
+    }
   };
 
   const handleOpenLiveRoom = (rfq) => {
@@ -96,49 +167,103 @@ export default function App() {
     setScreen('LIVE_ROOM');
   };
 
+  const handleOpenClosedRoom = (rfq) => {
+    if (rfq) setActiveRfq(rfq);
+    setScreen('AUCTION_CLOSED');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.removeItem(USER_SESSION_KEY);
+    } catch (e) {
+      console.warn('Logout error:', e);
+    }
+    setUser(null);
+    setRole(null);
+    setActiveRfq(null);
+    setScreen('SPLASH');
+  };
+
   const renderCurrentScreen = () => {
     switch (screen) {
       case 'SPLASH':
         return <SplashScreen onContinue={handleSplashContinue} theme={theme} onToggleTheme={handleToggleTheme} />;
       case 'INTRO':
-        return <OnboardingScreen onSelectRole={handleSelectRole} theme={theme} />;
+        return <OnboardingScreen onSelectRole={handleSelectRole} theme={theme} user={user} />;
       case 'BUYER_DASHBOARD':
         return (
           <BuyerDashboardScreen
             rfqs={rfqs}
             onCreateNew={() => setScreen('CREATE_RFQ')}
             onOpenLiveRoom={handleOpenLiveRoom}
-            onOpenClosedRoom={() => setScreen('AUCTION_CLOSED')}
+            onOpenClosedRoom={handleOpenClosedRoom}
             onSelectTab={(tab) => setScreen(tab)}
             theme={theme}
+            user={user}
           />
         );
       case 'CREATE_RFQ':
         return <CreateRfqScreen onCreateRfq={handleCreateRfq} onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} />;
       case 'SUPPLIER_PORTAL':
-        return <SupplierPortalScreen rfq={activeRfq || rfqs[0]} onBack={() => setScreen('INTRO')} theme={theme} />;
+        return <SupplierPortalScreen rfq={activeRfq || rfqs[0]} onBack={() => setScreen('INTRO')} theme={theme} user={user} />;
       case 'LIVE_ROOM':
         return (
           <LiveAuctionRoomScreen
             rfq={activeRfq || rfqs[0]}
             role={role}
             onExit={() => setScreen('BUYER_DASHBOARD')}
-            onShowWinner={() => setScreen('AUCTION_CLOSED')}
+            onShowWinner={(closedRfq) => {
+              if (closedRfq) setActiveRfq(closedRfq);
+              setScreen('AUCTION_CLOSED');
+            }}
             theme={theme}
           />
         );
       case 'AUCTION_CLOSED':
-        return <AuctionClosedScreen onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} />;
+        return <AuctionClosedScreen rfq={activeRfq || rfqs[0]} onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} />;
       case 'SUPPLIER_DIRECTORY':
-        return <SupplierDirectoryScreen onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} />;
+        return <SupplierDirectoryScreen onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} user={user} />;
       case 'SETTINGS':
-        return <SettingsScreen onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} onToggleTheme={handleToggleTheme} />;
+        return (
+          <SettingsScreen
+            user={user}
+            onUpdateUser={async (updatedUser) => {
+              setUser(updatedUser);
+              try {
+                await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify(updatedUser));
+              } catch (e) {
+                console.warn('Failed to update session:', e);
+              }
+            }}
+            onBack={() => setScreen(role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD')}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            onLogout={handleLogout}
+            onNavigateProfile={() => setScreen('PROFILE')}
+          />
+        );
+      case 'PROFILE':
+        return (
+          <ProfileScreen
+            user={user}
+            onUpdateUser={async (updatedUser) => {
+              setUser(updatedUser);
+              try {
+                await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify(updatedUser));
+              } catch (e) {
+                console.warn('Failed to update session:', e);
+              }
+            }}
+            onBack={() => setScreen('SETTINGS')}
+            theme={theme}
+          />
+        );
       default:
         return <SplashScreen onContinue={handleSplashContinue} theme={theme} onToggleTheme={handleToggleTheme} />;
     }
   };
 
-  const showNavBar = screen !== 'SPLASH' && screen !== 'INTRO';
+  const showNavBar = screen !== 'SPLASH' && screen !== 'INTRO' && screen !== 'PROFILE';
 
   return (
     <SafeAreaProvider>
@@ -164,6 +289,9 @@ export default function App() {
             />
           )}
         </WavyBackground>
+
+        {/* Global Custom Themed Popup Container */}
+        <CustomPopupHost theme={theme} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

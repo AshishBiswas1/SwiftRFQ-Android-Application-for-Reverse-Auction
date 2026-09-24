@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { darkPalette } from '../theme/tokens';
+import { showCustomAlert } from '../services/customAlert';
 
 export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalette }) {
-  const [commodity, setCommodity] = useState('H2O2 50% Chemical Grade');
-  const [quantity, setQuantity] = useState('15');
-  const [unit, setUnit] = useState('Metric Tons');
-  const [ceilingPrice, setCeilingPrice] = useState('48000');
-  const [minDecrement, setMinDecrement] = useState('500');
-  const [durationMinutes, setDurationMinutes] = useState('15');
+  const [commodity, setCommodity] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [unit, setUnit] = useState('L');
+  const [ceilingPrice, setCeilingPrice] = useState('');
+  const [minDecrement, setMinDecrement] = useState('0.50');
+  const [durationMinutes, setDurationMinutes] = useState('60');
 
   const handleSubmit = () => {
     if (!commodity || !quantity || !ceilingPrice || !minDecrement) {
-      Alert.alert('Incomplete Form', 'Please fill in all commodity auction details.');
+      showCustomAlert('Incomplete Form', 'Please fill in all commodity auction details.');
       return;
     }
 
@@ -55,7 +56,7 @@ export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalet
         value={commodity}
         onChangeText={setCommodity}
         placeholderTextColor={theme.inkDim}
-        placeholder="e.g. H2O2 50%"
+        placeholder="e.g. Hydrogen Peroxide 50% IP Grade"
       />
 
       <View style={styles.row}>
@@ -66,6 +67,7 @@ export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalet
             value={quantity}
             onChangeText={setQuantity}
             placeholderTextColor={theme.inkDim}
+            placeholder="e.g. 18000"
             keyboardType="numeric"
           />
         </View>
@@ -76,6 +78,7 @@ export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalet
             value={unit}
             onChangeText={setUnit}
             placeholderTextColor={theme.inkDim}
+            placeholder="e.g. L, kg, MT"
           />
         </View>
       </View>
@@ -86,6 +89,7 @@ export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalet
         value={ceilingPrice}
         onChangeText={setCeilingPrice}
         placeholderTextColor={theme.inkDim}
+        placeholder="e.g. 38.00"
         keyboardType="numeric"
       />
 
@@ -95,6 +99,7 @@ export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalet
         value={minDecrement}
         onChangeText={setMinDecrement}
         placeholderTextColor={theme.inkDim}
+        placeholder="e.g. 0.50"
         keyboardType="numeric"
       />
 

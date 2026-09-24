@@ -139,14 +139,12 @@ export default function BottomNavBar({ activeTab, onSelectTab, role = 'BUYER', t
     { key: 'BUYER_DASHBOARD', label: 'Requirements', Icon: RequirementsIcon },
     { key: 'SUPPLIER_DIRECTORY', label: 'Suppliers', Icon: SuppliersIcon },
     { key: 'SETTINGS', label: 'Settings', Icon: SettingsIcon },
-    { key: 'INTRO', label: 'Switch role', Icon: SwitchRoleIcon },
   ];
 
   const supplierTabs = [
     { key: 'SUPPLIER_PORTAL', label: 'My Bids', Icon: SupplierPortalIcon },
     { key: 'SUPPLIER_DIRECTORY', label: 'Directory', Icon: SuppliersIcon },
     { key: 'SETTINGS', label: 'Settings', Icon: SettingsIcon },
-    { key: 'INTRO', label: 'Switch role', Icon: SwitchRoleIcon },
   ];
 
   const tabs = isSupplier ? supplierTabs : buyerTabs;

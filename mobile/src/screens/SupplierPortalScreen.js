@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList } from 'react-native';
 import { darkPalette } from '../theme/tokens';
+import { showCustomAlert } from '../services/customAlert';
 
 // ── Status Pill ──────────────────────────────────────────────────────────────
 function StatusPill({ label, theme }) {
@@ -86,22 +87,91 @@ const tileSt = StyleSheet.create({
 });
 
 // ── Main Screen ──────────────────────────────────────────────────────────────
-export default function SupplierPortalScreen({ rfq, onBack, theme = darkPalette }) {
-  const [bidAmount, setBidAmount] = useState('35.90');
-  const [history, setHistory] = useState([
-    { time: '2 min ago',  amount: '36.40' },
-    { time: '14 min ago', amount: '37.10' },
-  ]);
+export default function SupplierPortalScreen({ rfq, onBack, theme = darkPalette, user }) {
+  const [bidAmount, setBidAmount] = useState('');
+  const [history, setHistory] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handlePlaceBid = () => {
+  const unit = rfq?.unit || 'L';
+  const minStep = rfq?.minDecrement || 0.5;
+  const currentLowest = rfq?.lowestBid != null ? rfq.lowestBid : rfq?.ceilingPrice;
+
+  useEffect(() => {
+    if (rfq?.bids && rfq.bids.length > 0) {
+      setHistory(
+        rfq.bids.map((b) => ({
+          time: b.timestamp ? new Date(b.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
+          amount: typeof b.amount === 'number' ? b.amount.toFixed(2) : String(b.amount),
+          supplierName: b.supplierName,
+        }))
+      );
+    } else {
+      setHistory([]);
+    }
+  }, [rfq]);
+
+  const handlePlaceBid = async () => {
     const num = parseFloat(bidAmount);
     if (isNaN(num) || num <= 0) {
-      Alert.alert('Invalid Bid', 'Please enter a valid bid amount.');
+      showCustomAlert('Invalid Bid', 'Please enter a valid numeric bid amount.');
       return;
     }
-    setHistory([{ time: 'Just now', amount: num.toFixed(2) }, ...history]);
-    Alert.alert('Bid Submitted', `Your bid of ₹${num.toFixed(2)}/L has been transmitted.`);
+
+    if (currentLowest != null && num > currentLowest - minStep) {
+      showCustomAlert(
+        'Bid Too High',
+        `Your bid must be at least ₹${minStep.toFixed(2)} lower than the current lowest ask (max allowable bid: ₹${(currentLowest - minStep).toFixed(2)}).`
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const newEntry = {
+        time: 'Just now',
+        amount: num.toFixed(2),
+        supplierName: user?.name || 'You',
+      };
+      setHistory((prev) => [newEntry, ...prev]);
+      setBidAmount('');
+      showCustomAlert('Bid Transmitted', `Your competitive bid of ₹${num.toFixed(2)} / ${unit} has been placed on the floor.`, null, { type: 'success' });
+    } catch (err) {
+      showCustomAlert('Error', err.message || 'Failed to submit bid.', null, { type: 'error' });
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  if (!rfq) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.backRow}>
+          <TouchableOpacity
+            style={[styles.backBtn, { backgroundColor: theme.surface, borderColor: theme.line }]}
+            onPress={onBack}
+          >
+            <Text style={{ color: theme.ink, fontSize: 16 }}>←</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.kicker, { color: theme.brass }]} numberOfLines={1}>
+              SUPPLIER · {(user?.companyName || user?.name || 'VERIFIED BIDDER').toUpperCase()}
+            </Text>
+            <Text style={[styles.heading, { color: theme.ink }]} numberOfLines={1}>
+              Live Auctions
+            </Text>
+          </View>
+        </View>
+
+        <View style={[styles.emptyBox, { backgroundColor: theme.surface, borderColor: theme.line, marginTop: 40 }]}>
+          <Text style={{ fontSize: 32, marginBottom: 8 }}>🏷️</Text>
+          <Text style={[styles.emptyTitle, { color: theme.ink }]}>No active auctions available</Text>
+          <Text style={[styles.emptyDesc, { color: theme.inkDim }]}>
+            There are currently no active commodity RFQs on the floor. When a buyer posts a requirement, it will appear here for you to bid on.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -114,48 +184,70 @@ export default function SupplierPortalScreen({ rfq, onBack, theme = darkPalette 
         >
           <Text style={{ color: theme.ink, fontSize: 16 }}>←</Text>
         </TouchableOpacity>
-        <View>
-          <Text style={[styles.kicker, { color: theme.brass }]}>SUPPLIER · ANVESHAN CHEM</Text>
-          <Text style={[styles.heading, { color: theme.ink }]}>Hydrogen Peroxide — 50%</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.kicker, { color: theme.brass }]} numberOfLines={1}>
+            SUPPLIER · {(user?.companyName || user?.name || 'VERIFIED BIDDER').toUpperCase()}
+          </Text>
+          <Text style={[styles.heading, { color: theme.ink }]} numberOfLines={1}>
+            {rfq?.commodity || 'Active Commodity Auction'}
+          </Text>
         </View>
       </View>
 
       <Text style={[styles.subText, { color: theme.inkDim }]}>
-        Requested by Bansal Industries · 18,000 L · ex-works Vapi
+        Requested by {rfq?.buyerName || 'Verified Buyer'} · {(rfq?.quantity || 0).toLocaleString()} {unit} · ex-works {rfq?.location || 'India'}
       </Text>
 
       {/* Live Status Bar */}
       <View style={[styles.liveBar, { backgroundColor: theme.surface, borderColor: theme.rust }]}>
         <View style={styles.liveLeft}>
           <View style={[styles.liveDot, { backgroundColor: theme.rust }]} />
-          <Text style={[styles.liveRank, { color: theme.inkDim }]}>Your rank: #1 of 4</Text>
+          <Text style={[styles.liveRank, { color: theme.inkDim }]}>
+            {history.length > 0 ? `Standing: ${history.length} active bid${history.length > 1 ? 's' : ''}` : 'Auction Open'}
+          </Text>
         </View>
-        <Text style={[styles.timer, { color: theme.rust }]}>03:41:12</Text>
+        <Text style={[styles.timer, { color: theme.rust }]}>
+          {rfq?.status === 'CLOSED' ? 'CLOSED' : 'LIVE'}
+        </Text>
       </View>
 
       {/* Hero: Lowest Bid Card */}
       <View style={[styles.card, styles.centerCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-        <Text style={[styles.cardSub, { color: theme.inkDim }]}>LOWEST BID TO BEAT</Text>
+        <Text style={[styles.cardSub, { color: theme.inkDim }]}>
+          {currentLowest != null ? 'LOWEST BID TO BEAT' : 'STARTING CEILING PRICE'}
+        </Text>
         <View style={styles.bigNumRow}>
-          <Text style={[styles.bigNum, { color: theme.brass }]}>₹36.40</Text>
-          <Text style={[styles.unitText, { color: theme.inkDim }]}> /L</Text>
+          <Text style={[styles.bigNum, { color: theme.brass }]}>
+            {currentLowest != null ? `₹${Number(currentLowest).toFixed(2)}` : '—'}
+          </Text>
+          <Text style={[styles.unitText, { color: theme.inkDim }]}> /{unit}</Text>
         </View>
-        <Text style={[styles.niceText, { color: theme.inkDim }]}>that's you — nice</Text>
+        <Text style={[styles.niceText, { color: theme.inkDim }]}>
+          {history.length > 0 ? 'Lowest submitted floor ask' : 'Ceiling starting ask'}
+        </Text>
       </View>
 
       {/* Place Bid Input Form */}
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <Text style={[styles.label, { color: theme.inkDim }]}>
-          Your next bid (₹ / L) · min. step ₹0.50
+          Your next bid (₹ / {unit}) · min. step ₹{minStep.toFixed(2)}
         </Text>
         <TextInput
           style={[styles.input, { backgroundColor: theme.surface2, borderColor: theme.line, color: theme.ink }]}
           value={bidAmount}
           onChangeText={setBidAmount}
+          placeholder={currentLowest ? `e.g. ${(currentLowest - minStep).toFixed(2)}` : 'Enter bid amount'}
+          placeholderTextColor={theme.inkDim}
           keyboardType="numeric"
         />
-        <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: theme.brass }]} onPress={handlePlaceBid}>
-          <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Place bid</Text>
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: theme.brass, opacity: submitting ? 0.7 : 1 }]}
+          onPress={handlePlaceBid}
+          disabled={submitting}
+        >
+          <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>
+            {submitting ? 'Placing bid...' : 'Place bid'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -165,13 +257,22 @@ export default function SupplierPortalScreen({ rfq, onBack, theme = darkPalette 
         <View style={[styles.sectionLine, { backgroundColor: theme.line }]} />
       </View>
 
-      {/* History Tiles */}
+      {/* History Tiles or Empty State */}
       <FlatList
         data={history}
         keyExtractor={(item, index) => index.toString()}
         renderItem={({ item, index }) => (
           <HistoryTile item={item} index={index} theme={theme} />
         )}
+        ListEmptyComponent={
+          <View style={[styles.emptyBox, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+            <Text style={{ fontSize: 26, marginBottom: 6 }}>🏷️</Text>
+            <Text style={[styles.emptyTitle, { color: theme.ink }]}>No bids submitted yet</Text>
+            <Text style={[styles.emptyDesc, { color: theme.inkDim }]}>
+              Enter a bid above to place your opening offer on this commodity auction.
+            </Text>
+          </View>
+        }
         scrollEnabled={false}
       />
     </View>
@@ -192,7 +293,7 @@ const styles = StyleSheet.create({
   liveLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
   liveRank: { fontSize: 12 },
-  timer: { fontSize: 20, fontWeight: 'bold' },
+  timer: { fontSize: 18, fontWeight: 'bold' },
   card: { padding: 16, borderRadius: 14, borderWidth: 1, gap: 8 },
   centerCard: { alignItems: 'center' },
   cardSub: { fontSize: 11 },
@@ -207,4 +308,7 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   sectionLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
   sectionLine: { flex: 1, height: 1 },
+  emptyBox: { padding: 24, borderRadius: 14, borderWidth: 1, alignItems: 'center', marginVertical: 6 },
+  emptyTitle: { fontSize: 14.5, fontWeight: '700', marginBottom: 4 },
+  emptyDesc: { fontSize: 12, textAlign: 'center', lineHeight: 16 },
 });

@@ -1,52 +1,41 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { darkPalette } from '../theme/tokens';
+import api from '../services/api';
 
-export default function OnboardingScreen({ onSelectRole, theme = darkPalette }) {
-  const [selectedRole, setSelectedRole] = useState('buyer');
+export default function OnboardingScreen({ onSelectRole, theme = darkPalette, user }) {
+  const userRole = user?.role || 'SUPPLIER';
+  const isSupplier = userRole === 'SUPPLIER';
 
   const handleContinue = () => {
-    onSelectRole(selectedRole === 'supplier' ? 'SUPPLIER' : 'BUYER');
+    onSelectRole(userRole);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, { color: theme.inkDim }]}>I'll be using SourceFloor as a —</Text>
-
-      {/* Role Picker Buttons */}
-      <View style={styles.roleRow}>
-        <TouchableOpacity
-          style={[
-            styles.roleIcon,
-            { backgroundColor: theme.surface, borderColor: selectedRole === 'buyer' ? theme.brass : theme.line },
-          ]}
-          onPress={() => setSelectedRole('buyer')}
-        >
-          <Text style={styles.roleSymbol}>📦</Text>
-          <Text style={[styles.roleText, { color: selectedRole === 'buyer' ? theme.brass : theme.inkDim }]}>
-            Buyer
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.roleIcon,
-            { backgroundColor: theme.surface, borderColor: selectedRole === 'supplier' ? theme.brass : theme.line },
-          ]}
-          onPress={() => setSelectedRole('supplier')}
-        >
-          <Text style={styles.roleSymbol}>🏷️</Text>
-          <Text style={[styles.roleText, { color: selectedRole === 'supplier' ? theme.brass : theme.inkDim }]}>
-            Supplier
-          </Text>
-        </TouchableOpacity>
+      {/* Permanent Account Role Confirmation Banner */}
+      <View style={[styles.roleBadgeCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+        <View style={styles.roleBadgeInfo}>
+          <Text style={styles.roleSymbol}>{isSupplier ? '🏷️' : '📦'}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.roleLabelText, { color: theme.brass }]}>ROLE (SET BY SIGNUP TYPE)</Text>
+            <Text style={[styles.roleValueText, { color: theme.ink }]}>
+              {isSupplier ? 'Verified Supplier' : 'Verified Buyer'}
+            </Text>
+          </View>
+        </View>
+        <View style={[styles.lockedPill, { backgroundColor: theme.surface2 }]}>
+          <Text style={[styles.lockedPillText, { color: theme.inkDim }]}>🔒 Permanent</Text>
+        </View>
       </View>
 
       <View style={styles.brandRow}>
         <Text style={[styles.brandMark, { color: theme.brass }]}>▲</Text>
         <Text style={[styles.brandTitle, { color: theme.ink }]}>Welcome to SourceFloor</Text>
       </View>
-      <Text style={[styles.subTitle, { color: theme.inkDim }]}>A quick look before you get started:</Text>
+      <Text style={[styles.subTitle, { color: theme.inkDim }]}>
+        Role is permanently locked based on your {isSupplier ? 'Supplier' : 'Buyer'} signup type:
+      </Text>
 
       {/* Breakdown Card */}
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.line }]}>
@@ -111,25 +100,42 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     marginTop: 10,
   },
-  roleRow: {
+  roleBadgeCard: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 6,
-  },
-  roleIcon: {
-    flex: 1,
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    gap: 6,
+    marginTop: 6,
+  },
+  roleBadgeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  roleLabelText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  roleValueText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  lockedPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  lockedPillText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   roleSymbol: {
-    fontSize: 22,
-  },
-  roleText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 26,
   },
   brandRow: {
     flexDirection: 'row',

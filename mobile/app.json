@@ -3,6 +3,7 @@
     "name": "SwiftRFQ Mobile",
     "slug": "swiftrfq-mobile",
     "version": "1.0.0",
+    "scheme": "swiftrfq",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -14,6 +15,16 @@
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "plugins": [
+      "expo-web-browser",
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow SwiftRFQ to access your contacts to invite suppliers to your auctions."
+        }
+      ]
+    ]
   }
 }

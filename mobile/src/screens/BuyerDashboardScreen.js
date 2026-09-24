@@ -105,24 +105,31 @@ const tileSt = StyleSheet.create({
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function BuyerDashboardScreen({
-  rfqs,
+  rfqs = [],
   onCreateNew,
   onOpenLiveRoom,
   onOpenClosedRoom,
   onSelectTab,
   theme = darkPalette,
+  user = null,
 }) {
   const [filter, setFilter] = useState('ALL');
 
-  const requirements = [
-    { key: 'live',   status: 'LIVE',   name: 'Hydrogen Peroxide — 50%', meta: '18,000 L · closes in 03:41:12' },
-    { key: 'closed', status: 'CLOSED', name: 'Caustic Soda Lye',        meta: '12,000 kg · 6 suppliers bid'  },
-    { key: 'draft',  status: 'DRAFT',  name: 'Sodium Hypochlorite',     meta: 'not yet launched'              },
-  ];
+  const requirements = (rfqs || []).map((rfq) => ({
+    key: rfq.id || String(Math.random()),
+    raw: rfq,
+    status: rfq.status || (rfq.lowestBid ? 'LIVE' : 'DRAFT'),
+    name: rfq.commodity || 'Commodity Requirement',
+    meta: `${rfq.quantity ? Number(rfq.quantity).toLocaleString() : 0} ${rfq.unit || 'L'} · ${rfq.bids?.length || 0} bids`,
+  }));
 
   const visible = requirements.filter(r =>
     filter === 'ALL' || r.status === filter
   );
+
+  const activeCount = (rfqs || []).filter(r => r.status !== 'CLOSED').length;
+  const totalBids = (rfqs || []).reduce((acc, r) => acc + (r.bids?.length || 0), 0);
+  const totalRfqs = (rfqs || []).length;
 
   return (
     <View style={styles.container}>
@@ -134,12 +141,35 @@ export default function BuyerDashboardScreen({
           <Text style={[styles.heading, { color: theme.ink }]}>Requirements</Text>
         </View>
 
+        {/* User Identity Card */}
+        {user && (
+          <View style={[styles.userBadgeCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+            <View style={[styles.avatarCircle, { backgroundColor: theme.brass }]}>
+              <Text style={[styles.avatarInitial, { color: theme.primaryText }]}>
+                {(user.name || user.email || 'B').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.userNameText, { color: theme.ink }]} numberOfLines={1}>
+                {user.name || 'Verified Buyer'}
+              </Text>
+              <Text style={[styles.userEmailText, { color: theme.inkDim }]} numberOfLines={1}>
+                {user.email || 'buyer@swiftrfq.com'}
+              </Text>
+            </View>
+            <View style={[styles.rolePill, { backgroundColor: 'rgba(198,151,73,0.15)', borderColor: theme.brass }]}>
+              <Text style={[styles.rolePillText, { color: theme.brass }]}>BUYER</Text>
+            </View>
+          </View>
+        )}
+
+
         {/* Stats Row */}
         <View style={styles.statsRow}>
           {[
-            { num: rfqs.length, label: 'ACTIVE' },
-            { num: '4.2%',      label: 'AVG SAVED' },
-            { num: '11',        label: 'SUPPLIERS' },
+            { num: activeCount, label: 'ACTIVE' },
+            { num: totalBids,   label: 'BIDS PLACED' },
+            { num: totalRfqs,   label: 'TOTAL RFQS' },
           ].map(s => (
             <View key={s.label} style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
               <Text style={[styles.statNum, { color: theme.brass }]}>{s.num}</Text>
@@ -148,32 +178,12 @@ export default function BuyerDashboardScreen({
           ))}
         </View>
 
-        {/* Avatar Strip */}
-        <View style={styles.avatarStrip}>
-          {[
-            { initials: 'AC', bg: theme.brass },
-            { initials: 'VI', bg: theme.rust },
-            { initials: 'KO', bg: theme.olive },
-            { initials: '+8', bg: theme.surface2, muted: true },
-          ].map((a, i) => (
-            <View key={i} style={[styles.avatar, { backgroundColor: a.bg }]}>
-              <Text style={[styles.avatarText, a.muted ? { color: theme.inkDim } : { color: theme.primaryText }]}>
-                {a.initials}
-              </Text>
-            </View>
-          ))}
-          <Text style={[styles.avatarDesc, { color: theme.inkDim }]}>
-            bidding across your open requirements
-          </Text>
-        </View>
-
         {/* Filter Chips */}
         <View style={styles.filterRow}>
           {[
-            { key: 'ALL',    label: 'All (3)' },
-            { key: 'LIVE',   label: 'Live (1)' },
-            { key: 'CLOSED', label: 'Closed (1)' },
-            { key: 'DRAFT',  label: 'Draft (1)' },
+            { key: 'ALL',    label: `All (${requirements.length})` },
+            { key: 'LIVE',   label: `Live (${requirements.filter(r => r.status === 'LIVE').length})` },
+            { key: 'CLOSED', label: `Closed (${requirements.filter(r => r.status === 'CLOSED').length})` },
           ].map(chip => {
             const isSel = filter === chip.key;
             return (
@@ -199,23 +209,35 @@ export default function BuyerDashboardScreen({
           <View style={[styles.sectionLine, { backgroundColor: theme.line }]} />
         </View>
 
-        {/* Requirement Tiles */}
-        {visible.map(r => (
-          <RequirementTile
-            key={r.key}
-            name={r.name}
-            meta={r.meta}
-            status={r.status}
-            theme={theme}
-            onPress={
-              r.status === 'LIVE'
-                ? () => onOpenLiveRoom(rfqs[0] || { id: 'RFQ-8821', commodity: r.name })
-                : r.status === 'CLOSED'
-                ? () => onOpenClosedRoom(rfqs[0])
-                : undefined
-            }
-          />
-        ))}
+        {/* Requirement Tiles or Empty State */}
+        {visible.length === 0 ? (
+          <View style={[styles.emptyBox, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+            <Text style={{ fontSize: 32, marginBottom: 8 }}>📦</Text>
+            <Text style={[styles.emptyTitle, { color: theme.ink }]}>No requirements found</Text>
+            <Text style={[styles.emptyDesc, { color: theme.inkDim }]}>
+              {filter === 'ALL'
+                ? 'Launch your first live reverse auction to receive competitive bids from verified suppliers.'
+                : `You currently have no ${filter.toLowerCase()} auction requirements.`}
+            </Text>
+          </View>
+        ) : (
+          visible.map(r => (
+            <RequirementTile
+              key={r.key}
+              name={r.name}
+              meta={r.meta}
+              status={r.status}
+              theme={theme}
+              onPress={
+                r.status === 'LIVE'
+                  ? () => onOpenLiveRoom(r.raw)
+                  : r.status === 'CLOSED'
+                  ? () => onOpenClosedRoom(r.raw)
+                  : undefined
+              }
+            />
+          ))
+        )}
 
         {/* New requirement CTA */}
         <TouchableOpacity
@@ -235,7 +257,15 @@ const styles = StyleSheet.create({
   headerRow: { marginTop: 6 },
   kicker: { fontSize: 10.5, fontWeight: 'bold', letterSpacing: 1 },
   heading: { fontSize: 22, fontWeight: '600' },
+  userBadgeCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1, marginTop: 4 },
+  avatarCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { fontSize: 15, fontWeight: 'bold' },
+  userNameText: { fontSize: 13, fontWeight: '700' },
+  userEmailText: { fontSize: 11, marginTop: 1 },
+  rolePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  rolePillText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.8 },
   statsRow: { flexDirection: 'row', gap: 8 },
+
   stat: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
   statNum: { fontSize: 16, fontWeight: 'bold' },
   statLabel: { fontSize: 9.5, marginTop: 2, letterSpacing: 0.5 },
@@ -251,4 +281,7 @@ const styles = StyleSheet.create({
   sectionLine: { flex: 1, height: 1 },
   primaryBtn: { padding: 14, borderRadius: 14, alignItems: 'center', marginTop: 4 },
   primaryBtnText: { fontSize: 14.5, fontWeight: '700' },
+  emptyBox: { padding: 24, borderRadius: 16, borderWidth: 1, alignItems: 'center', marginVertical: 8 },
+  emptyTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  emptyDesc: { fontSize: 12, textAlign: 'center', lineHeight: 17 },
 });
