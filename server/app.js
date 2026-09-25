@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const biddingRouter = require('./routers/biddingRouter');
 const userRouter = require('./routers/userRouter');
 const contactRouter = require('./routers/contactRouter');
+const notificationRouter = require('./routers/notificationRouter');
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api', biddingRouter);
 app.use('/api/users', userRouter);
 app.use('/api/contacts', contactRouter);
+app.use('/api/notifications', notificationRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

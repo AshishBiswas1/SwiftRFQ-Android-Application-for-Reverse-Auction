@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, StatusBar, View } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, StatusBar, View, Text, TouchableOpacity, Animated } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 
 WebBrowser.maybeCompleteAuthSession();
-
 
 import SplashScreen from './src/screens/SplashScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -20,10 +19,14 @@ import ProfileScreen from './src/screens/ProfileScreen';
 import BottomNavBar from './src/components/BottomNavBar';
 import WavyBackground from './src/components/WavyBackground';
 import { CustomPopupHost } from './src/components/CustomPopup';
-import { connectSocket, disconnectSocket } from './src/services/socket';
+import { connectSocket, disconnectSocket, socket } from './src/services/socket';
 import { lightPalette, darkPalette } from './src/theme/tokens';
-
 import api from './src/services/api';
+import {
+  initDeviceNotifications,
+  showDeviceDropdownNotification,
+  addNotificationResponseListener,
+} from './src/services/deviceNotificationService';
 
 const THEME_STORAGE_KEY = 'swiftrfq_theme_mode';
 const USER_SESSION_KEY = 'swiftrfq_user_session';
@@ -36,6 +39,11 @@ export default function App() {
   const [activeRfq, setActiveRfq] = useState(null);
   const [rfqs, setRfqs] = useState([]);
 
+  // In-app Notification Banner State
+  const [toastNotif, setToastNotif] = useState(null);
+  const toastAnim = useRef(new Animated.Value(-150)).current;
+  const toastTimer = useRef(null);
+
   useEffect(() => {
     const loadInitialData = async () => {
       // 1. Load theme preference
@@ -43,19 +51,18 @@ export default function App() {
         const savedMode = await AsyncStorage.getItem(THEME_STORAGE_KEY);
         if (savedMode === 'dark') setTheme(darkPalette);
         else if (savedMode === 'light') setTheme(lightPalette);
-      } catch (e) {
-        // Fallback remains lightPalette
-      }
+      } catch (e) {}
 
       // 2. Load persisted user session (auto-login)
+      let currentUser = null;
       try {
         const savedUserStr = await AsyncStorage.getItem(USER_SESSION_KEY);
         if (savedUserStr) {
-          const savedUser = JSON.parse(savedUserStr);
-          setUser(savedUser);
-          if (savedUser.role) {
-            setRole(savedUser.role);
-            setScreen(savedUser.role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD');
+          currentUser = JSON.parse(savedUserStr);
+          setUser(currentUser);
+          if (currentUser.role) {
+            setRole(currentUser.role);
+            setScreen(currentUser.role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD');
           }
         }
       } catch (e) {
@@ -64,15 +71,17 @@ export default function App() {
 
       // 3. Fetch live RFQs from backend API
       try {
-        const savedUserStr = await AsyncStorage.getItem(USER_SESSION_KEY);
-        const currentUser = savedUserStr ? JSON.parse(savedUserStr) : null;
-        const rfqParams = currentUser
-          ? { buyerId: currentUser._id || currentUser.id, role: currentUser.role }
-          : {};
+        // Suppliers see ALL bidding rooms whether invited or not (do not pass buyerId)
+        const isBuyer = currentUser?.role === 'BUYER';
+        const rfqParams = isBuyer
+          ? { buyerId: currentUser._id || currentUser.id, role: 'BUYER' }
+          : { role: 'SUPPLIER' };
+
         const rfqRes = await api.getRfqs(rfqParams);
         if (rfqRes?.data && Array.isArray(rfqRes.data)) {
           setRfqs(rfqRes.data);
-          if (rfqRes.data.length > 0) {
+          // Only select activeRfq for buyers by default; suppliers see full floor list
+          if (isBuyer && rfqRes.data.length > 0) {
             setActiveRfq(rfqRes.data[0]);
           }
         }
@@ -85,6 +94,173 @@ export default function App() {
     connectSocket();
     return () => disconnectSocket();
   }, []);
+
+  // Initialize device system notifications and handle tap from notification dropdown
+  useEffect(() => {
+    initDeviceNotifications();
+    const unsub = addNotificationResponseListener((data) => {
+      handleTapToast(data);
+    });
+    return () => unsub();
+  }, [user, role]);
+
+  // Register user socket room whenever authenticated user changes
+  useEffect(() => {
+    if (user && socket) {
+      const uid = String(user._id || user.id);
+      socket.emit('register_user', { userId: uid });
+    }
+  }, [user]);
+
+  // Real-time socket notification & auction updates
+  useEffect(() => {
+    const showToast = (notif) => {
+      // Filter notifications if intended for specific recipient
+      if (notif.recipientUserId && user) {
+        const myId = String(user._id || user.id);
+        const myPhone = user.phone || '';
+        const myEmail = user.email || '';
+        if (
+          notif.recipientUserId !== myId &&
+          notif.recipientUserId !== myPhone &&
+          notif.recipientUserId !== myEmail
+        ) {
+          return;
+        }
+      }
+
+      setToastNotif(notif);
+      Animated.spring(toastAnim, {
+        toValue: 12,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 7,
+      }).start();
+
+      // Post system notification to Android device notification dropdown tray
+      showDeviceDropdownNotification({
+        title: notif.title || 'SwiftRFQ Alert',
+        message: notif.message || '',
+        data: notif,
+      });
+
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => {
+        hideToast();
+      }, 6500);
+    };
+
+    // When any buyer creates a new RFQ room, add it to floor list in real-time
+    const onNewAuctionAvailable = (newRfq) => {
+      if (newRfq) {
+        setRfqs((prev) => {
+          const rfqId = newRfq.id || newRfq.rfqId;
+          const exists = prev.some((r) => (r.id || r.rfqId) === rfqId);
+          if (exists) return prev;
+          return [newRfq, ...prev];
+        });
+      }
+    };
+
+    // When an auction closes, update its status & standings in memory list
+    const onGlobalAuctionClosed = (closedPayload) => {
+      if (closedPayload && closedPayload.rfqId) {
+        const targetId = String(closedPayload.rfqId);
+        setRfqs((prev) =>
+          prev.map((r) => {
+            const matches =
+              String(r.id) === targetId ||
+              String(r.rfqId) === targetId ||
+              (r._id && String(r._id) === targetId);
+            return matches
+              ? { ...r, ...closedPayload, status: 'CLOSED' }
+              : r;
+          })
+        );
+        setActiveRfq((cur) => {
+          if (!cur) return cur;
+          const matches =
+            String(cur.id) === targetId ||
+            String(cur.rfqId) === targetId ||
+            (cur._id && String(cur._id) === targetId);
+          return matches
+            ? { ...cur, ...closedPayload, status: 'CLOSED' }
+            : cur;
+        });
+      }
+    };
+
+    // When an auction is deleted, remove from memory list
+    const onRfqDeleted = ({ rfqId }) => {
+      if (rfqId) {
+        setRfqs((prev) => prev.filter((r) => (r.id || r._id || r.rfqId) !== rfqId));
+        setActiveRfq((cur) => {
+          if (cur && (cur.id || cur._id || cur.rfqId) === rfqId) {
+            return null;
+          }
+          return cur;
+        });
+      }
+    };
+
+    socket.on('new_notification', showToast);
+    socket.on('in_app_notification', showToast);
+    socket.on('new_auction_available', onNewAuctionAvailable);
+    socket.on('auction_closed', onGlobalAuctionClosed);
+    socket.on('rfq_deleted', onRfqDeleted);
+
+    return () => {
+      socket.off('new_notification', showToast);
+      socket.off('in_app_notification', showToast);
+      socket.off('new_auction_available', onNewAuctionAvailable);
+      socket.off('auction_closed', onGlobalAuctionClosed);
+      socket.off('rfq_deleted', onRfqDeleted);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, [user, role]);
+
+  const hideToast = () => {
+    Animated.timing(toastAnim, {
+      toValue: -150,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => setToastNotif(null));
+  };
+
+  const handleTapToast = async (notif) => {
+    hideToast();
+    if (!notif) return;
+
+    if (notif.rfqId) {
+      try {
+        const res = await api.getRfqById(notif.rfqId, {
+          buyerId: user?._id || user?.id,
+          role,
+        });
+        if (res?.data) {
+          setActiveRfq(res.data);
+          if (
+            notif.type === 'AUCTION_WON' ||
+            notif.type === 'AUCTION_LOST' ||
+            notif.type === 'AUCTION_CLOSED'
+          ) {
+            setScreen('AUCTION_CLOSED');
+            return;
+          }
+          if (notif.type === 'SESSION_START') {
+            setScreen(role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'LIVE_ROOM');
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (notif.type === 'AUCTION_WON' || notif.type === 'AUCTION_LOST' || notif.type === 'AUCTION_CLOSED') {
+      setScreen('AUCTION_CLOSED');
+    } else if (notif.type === 'SESSION_START') {
+      setScreen(role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'LIVE_ROOM');
+    }
+  };
 
   const handleToggleTheme = async () => {
     const nextTheme = theme.mode === 'light' ? darkPalette : lightPalette;
@@ -102,16 +278,20 @@ export default function App() {
       const assignedRole = authUser.role || 'SUPPLIER';
       setRole(assignedRole);
 
-      // Refresh RFQs for this specific authenticated user
       try {
-        const rfqParams = { buyerId: authUser._id || authUser.id, role: assignedRole };
+        const isBuyer = assignedRole === 'BUYER';
+        const rfqParams = isBuyer
+          ? { buyerId: authUser._id || authUser.id, role: 'BUYER' }
+          : { role: 'SUPPLIER' };
+
         const rfqRes = await api.getRfqs(rfqParams);
         if (rfqRes?.data && Array.isArray(rfqRes.data)) {
           setRfqs(rfqRes.data);
-          if (rfqRes.data.length > 0) setActiveRfq(rfqRes.data[0]);
+          if (isBuyer && rfqRes.data.length > 0) setActiveRfq(rfqRes.data[0]);
         }
       } catch (_) {}
     }
+
     if (nextTarget === 'SETTINGS') {
       setScreen('SETTINGS');
     } else if (nextTarget === 'INTRO') {
@@ -126,7 +306,6 @@ export default function App() {
   };
 
   const handleSelectRole = async (selectedRole) => {
-    // Role is permanent once account is created
     const permanentRole = user?.role || selectedRole || 'SUPPLIER';
     setRole(permanentRole);
     setScreen(permanentRole === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD');
@@ -184,6 +363,24 @@ export default function App() {
     setScreen('SPLASH');
   };
 
+  const handleDeleteRfq = async (rfqId) => {
+    try {
+      const buyerId = user?._id || user?.id;
+      await api.deleteRfq(rfqId, buyerId);
+      setRfqs((prev) => prev.filter((r) => (r.id || r._id || r.rfqId) !== rfqId));
+      if (activeRfq && (activeRfq.id || activeRfq._id || activeRfq.rfqId) === rfqId) {
+        setActiveRfq(null);
+      }
+    } catch (err) {
+      console.warn('Failed to delete RFQ from backend:', err.message);
+      // Fallback local deletion
+      setRfqs((prev) => prev.filter((r) => (r.id || r._id || r.rfqId) !== rfqId));
+      if (activeRfq && (activeRfq.id || activeRfq._id || activeRfq.rfqId) === rfqId) {
+        setActiveRfq(null);
+      }
+    }
+  };
+
   const renderCurrentScreen = () => {
     switch (screen) {
       case 'SPLASH':
@@ -197,20 +394,56 @@ export default function App() {
             onCreateNew={() => setScreen('CREATE_RFQ')}
             onOpenLiveRoom={handleOpenLiveRoom}
             onOpenClosedRoom={handleOpenClosedRoom}
+            onDeleteRfq={handleDeleteRfq}
             onSelectTab={(tab) => setScreen(tab)}
             theme={theme}
             user={user}
           />
         );
       case 'CREATE_RFQ':
-        return <CreateRfqScreen onCreateRfq={handleCreateRfq} onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} />;
+        return (
+          <CreateRfqScreen
+            onCreateRfq={handleCreateRfq}
+            onBack={() => setScreen('BUYER_DASHBOARD')}
+            theme={theme}
+            user={user}
+          />
+        );
       case 'SUPPLIER_PORTAL':
-        return <SupplierPortalScreen rfq={activeRfq || rfqs[0]} onBack={() => setScreen('INTRO')} theme={theme} user={user} />;
+        return (
+          <SupplierPortalScreen
+            rfq={activeRfq}
+            rfqs={rfqs}
+            onSelectRfq={(selected) => setActiveRfq(selected)}
+            onBack={() => {
+              if (activeRfq) {
+                setActiveRfq(null);
+              } else {
+                setScreen('INTRO');
+              }
+            }}
+            onRefreshRfqs={async () => {
+              try {
+                const res = await api.getRfqs({ role: 'SUPPLIER' });
+                if (res?.data && Array.isArray(res.data)) {
+                  setRfqs(res.data);
+                }
+              } catch (_) {}
+            }}
+            onShowWinner={(closedRfq) => {
+              if (closedRfq) setActiveRfq(closedRfq);
+              setScreen('AUCTION_CLOSED');
+            }}
+            theme={theme}
+            user={user}
+          />
+        );
       case 'LIVE_ROOM':
         return (
           <LiveAuctionRoomScreen
             rfq={activeRfq || rfqs[0]}
             role={role}
+            user={user}
             onExit={() => setScreen('BUYER_DASHBOARD')}
             onShowWinner={(closedRfq) => {
               if (closedRfq) setActiveRfq(closedRfq);
@@ -220,7 +453,14 @@ export default function App() {
           />
         );
       case 'AUCTION_CLOSED':
-        return <AuctionClosedScreen rfq={activeRfq || rfqs[0]} onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} />;
+        return (
+          <AuctionClosedScreen
+            rfq={activeRfq || rfqs[0]}
+            onBack={() => setScreen(role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD')}
+            onDelete={role === 'BUYER' ? handleDeleteRfq : undefined}
+            theme={theme}
+          />
+        );
       case 'SUPPLIER_DIRECTORY':
         return <SupplierDirectoryScreen onBack={() => setScreen('BUYER_DASHBOARD')} theme={theme} user={user} />;
       case 'SETTINGS':
@@ -270,25 +510,64 @@ export default function App() {
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
         <StatusBar barStyle={theme.statusBar} backgroundColor={theme.bg} />
 
-        {/*
-         * WavyBackground wraps the screen content and navigation bar.
-         * The wavy SVG is pinned to the absolute background with zero layout impact,
-         * ensuring all components (screens, cards, inputs, buttons) render directly ON TOP.
-         */}
         <WavyBackground theme={theme}>
-          <View style={styles.screenLayer}>
-            {renderCurrentScreen()}
-          </View>
+          <View style={styles.screenLayer}>{renderCurrentScreen()}</View>
 
           {showNavBar && (
             <BottomNavBar
               activeTab={screen}
-              onSelectTab={(tab) => setScreen(tab)}
+              onSelectTab={(tab) => {
+                if (tab === 'SUPPLIER_PORTAL') {
+                  setActiveRfq(null); // Return to full floor list when tapping My Bids tab
+                }
+                setScreen(tab);
+              }}
               role={role}
               theme={theme}
             />
           )}
         </WavyBackground>
+
+        {/* Global Custom In-App Notification Toast */}
+        {toastNotif && (
+          <Animated.View
+            style={[
+              styles.toastContainer,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.brass,
+                transform: [{ translateY: toastAnim }],
+              },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={0.88}
+              style={styles.toastInner}
+              onPress={() => handleTapToast(toastNotif)}
+            >
+              <View style={styles.toastHeaderRow}>
+                <Text style={[styles.toastKicker, { color: theme.brass }]}>
+                  {toastNotif.type === 'AUCTION_WON'
+                    ? '🎉 WINNER DECLARED'
+                    : toastNotif.type === 'AUCTION_LOST'
+                    ? '📢 AUCTION CONCLUDED'
+                    : toastNotif.type === 'SESSION_START'
+                    ? '⚡ LIVE REVERSE AUCTION'
+                    : '🔔 NOTIFICATION'}
+                </Text>
+                <TouchableOpacity onPress={hideToast} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={{ color: theme.inkDim, fontSize: 13, fontWeight: '700' }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.toastTitle, { color: theme.ink }]} numberOfLines={1}>
+                {toastNotif.title}
+              </Text>
+              <Text style={[styles.toastMsg, { color: theme.inkDim }]} numberOfLines={2}>
+                {toastNotif.message}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         {/* Global Custom Themed Popup Container */}
         <CustomPopupHost theme={theme} />
@@ -300,4 +579,41 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   screenLayer: { flex: 1 },
+  toastContainer: {
+    position: 'absolute',
+    top: 10,
+    left: 14,
+    right: 14,
+    borderRadius: 14,
+    borderWidth: 1.4,
+    zIndex: 9999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  toastInner: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 3,
+  },
+  toastHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  toastKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  toastTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  toastMsg: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
 });

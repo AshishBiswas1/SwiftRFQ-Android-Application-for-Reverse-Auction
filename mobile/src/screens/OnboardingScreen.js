@@ -31,7 +31,7 @@ export default function OnboardingScreen({ onSelectRole, theme = darkPalette, us
 
       <View style={styles.brandRow}>
         <Text style={[styles.brandMark, { color: theme.brass }]}>▲</Text>
-        <Text style={[styles.brandTitle, { color: theme.ink }]}>Welcome to SourceFloor</Text>
+        <Text style={[styles.brandTitle, { color: theme.ink }]}>Welcome to SwiftRFQ</Text>
       </View>
       <Text style={[styles.subTitle, { color: theme.inkDim }]}>
         Role is permanently locked based on your {isSupplier ? 'Supplier' : 'Buyer'} signup type:

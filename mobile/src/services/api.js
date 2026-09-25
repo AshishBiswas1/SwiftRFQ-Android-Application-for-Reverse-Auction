@@ -85,7 +85,7 @@ export const api = {
   // ── RFQs & Reverse Auctions ───────────────────────────────────────────────
   getRfqs: (params = {}) => {
     const query = new URLSearchParams();
-    if (params.buyerId) query.append('buyerId', params.buyerId);
+    if (params.buyerId && params.role !== 'SUPPLIER') query.append('buyerId', params.buyerId);
     if (params.role) query.append('role', params.role);
     if (params.supplierId) query.append('supplierId', params.supplierId);
     const qs = query.toString();
@@ -104,6 +104,27 @@ export const api = {
     request('/api/rfqs', {
       method: 'POST',
       body: JSON.stringify(rfqData),
+    }),
+
+  closeRfq: (rfqId, buyerId) =>
+    request(`/api/rfqs/${rfqId}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ buyerId }),
+    }),
+
+  deleteRfq: (rfqId, buyerId) =>
+    request(`/api/rfqs/${rfqId}${buyerId ? `?buyerId=${encodeURIComponent(buyerId)}` : ''}`, {
+      method: 'DELETE',
+    }),
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  getNotifications: (userId) =>
+    request(`/api/notifications?userId=${encodeURIComponent(userId)}`),
+
+  markNotificationRead: (id, userId) =>
+    request(`/api/notifications/${id}/read`, {
+      method: 'PATCH',
+      body: JSON.stringify({ userId }),
     }),
 
   // ── Bids ──────────────────────────────────────────────────────────────────

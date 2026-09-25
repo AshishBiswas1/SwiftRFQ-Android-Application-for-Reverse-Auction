@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { darkPalette } from '../theme/tokens';
+import { showCustomAlert } from '../services/customAlert';
 
 // ── Status Pill ──────────────────────────────────────────────────────────────
 function StatusPill({ status, theme }) {
@@ -24,7 +25,7 @@ const pillSt = StyleSheet.create({
 });
 
 // ── Requirement Tile ─────────────────────────────────────────────────────────
-function RequirementTile({ name, meta, status, theme, onPress }) {
+function RequirementTile({ name, meta, status, theme, onPress, onDelete }) {
   const isLive = status === 'LIVE';
   const isClosed = status === 'CLOSED';
   const isDraft = status === 'DRAFT';
@@ -72,10 +73,25 @@ function RequirementTile({ name, meta, status, theme, onPress }) {
         )}
       </View>
 
-      {/* Arrow for tappable items */}
-      {!isDraft && (
-        <Text style={[tileSt.arrow, { color: accentColor }]}>›</Text>
-      )}
+      {/* Right Action Buttons */}
+      <View style={tileSt.rightActions}>
+        {onDelete && (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={[tileSt.deleteBtn, { backgroundColor: 'rgba(180, 50, 50, 0.1)', borderColor: 'rgba(180, 50, 50, 0.3)' }]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            onPress={(e) => {
+              if (e && e.stopPropagation) e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Text style={{ fontSize: 13 }}>🗑️</Text>
+          </TouchableOpacity>
+        )}
+        {!isDraft && (
+          <Text style={[tileSt.arrow, { color: accentColor }]}>›</Text>
+        )}
+      </View>
     </TouchableOpacity>
   );
 }
@@ -100,6 +116,8 @@ const tileSt = StyleSheet.create({
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveLabel: { fontSize: 10.5, fontWeight: '700' },
   closedLabel: { fontSize: 10.5, fontWeight: '600', marginTop: 4 },
+  rightActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  deleteBtn: { width: 28, height: 28, borderRadius: 7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   arrow: { fontSize: 24, fontWeight: '300', lineHeight: 28 },
 });
 
@@ -109,94 +127,131 @@ export default function BuyerDashboardScreen({
   onCreateNew,
   onOpenLiveRoom,
   onOpenClosedRoom,
+  onDeleteRfq,
   onSelectTab,
   theme = darkPalette,
-  user = null,
+  user,
 }) {
   const [filter, setFilter] = useState('ALL');
 
-  const requirements = (rfqs || []).map((rfq) => ({
-    key: rfq.id || String(Math.random()),
-    raw: rfq,
-    status: rfq.status || (rfq.lowestBid ? 'LIVE' : 'DRAFT'),
-    name: rfq.commodity || 'Commodity Requirement',
-    meta: `${rfq.quantity ? Number(rfq.quantity).toLocaleString() : 0} ${rfq.unit || 'L'} · ${rfq.bids?.length || 0} bids`,
+  const liveCount = rfqs.filter(r => r.status === 'LIVE').length;
+  const closedCount = rfqs.filter(r => r.status === 'CLOSED').length;
+  const totalBids = rfqs.reduce((acc, curr) => acc + (curr.bids ? curr.bids.length : 0), 0);
+
+  const visibleRfqs = rfqs.filter(r => {
+    if (filter === 'LIVE') return r.status === 'LIVE';
+    if (filter === 'CLOSED') return r.status === 'CLOSED';
+    return true;
+  });
+
+  const visible = visibleRfqs.map((r, i) => ({
+    key: r.id || r._id || r.rfqId || String(i),
+    raw: r,
+    name: r.commodity || `Requirement #${i + 1}`,
+    meta: `${(r.quantity || 0).toLocaleString()} ${r.unit || 'L'} · ${r.bids ? r.bids.length : 0} bids`,
+    status: r.status || 'LIVE',
   }));
 
-  const visible = requirements.filter(r =>
-    filter === 'ALL' || r.status === filter
-  );
+  const handleDelete = (r) => {
+    const targetRfq = r.raw || r;
+    const rfqId = targetRfq.id || targetRfq._id || targetRfq.rfqId;
+    const commodityName = targetRfq.commodity || r.name;
 
-  const activeCount = (rfqs || []).filter(r => r.status !== 'CLOSED').length;
-  const totalBids = (rfqs || []).reduce((acc, r) => acc + (r.bids?.length || 0), 0);
-  const totalRfqs = (rfqs || []).length;
+    showCustomAlert(
+      'Delete Requirement?',
+      `Are you sure you want to permanently delete "${commodityName}"? This will remove the bidding session from your dashboard and the floor.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          onPress: () => {
+            if (onDeleteRfq) {
+              onDeleteRfq(rfqId);
+            }
+          },
+        },
+      ],
+      { type: 'warning' }
+    );
+  };
+
+  const getInitial = () => {
+    if (!user) return 'B';
+    const name = user.name || user.companyName || '';
+    return name.charAt(0).toUpperCase() || 'B';
+  };
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.contentArea} showsVerticalScrollIndicator={false}>
-
+      <ScrollView contentContainerStyle={styles.contentArea}>
         {/* Header */}
         <View style={styles.headerRow}>
           <Text style={[styles.kicker, { color: theme.brass }]}>BUYER DASHBOARD</Text>
           <Text style={[styles.heading, { color: theme.ink }]}>Requirements</Text>
         </View>
 
-        {/* User Identity Card */}
+        {/* User Profile Badge Card */}
         {user && (
           <View style={[styles.userBadgeCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
             <View style={[styles.avatarCircle, { backgroundColor: theme.brass }]}>
-              <Text style={[styles.avatarInitial, { color: theme.primaryText }]}>
-                {(user.name || user.email || 'B').charAt(0).toUpperCase()}
-              </Text>
+              <Text style={[styles.avatarInitial, { color: theme.primaryText }]}>{getInitial()}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.userNameText, { color: theme.ink }]} numberOfLines={1}>
-                {user.name || 'Verified Buyer'}
-              </Text>
-              <Text style={[styles.userEmailText, { color: theme.inkDim }]} numberOfLines={1}>
-                {user.email || 'buyer@swiftrfq.com'}
-              </Text>
+              <Text style={[styles.userNameText, { color: theme.ink }]}>{user.name || user.companyName}</Text>
+              <Text style={[styles.userEmailText, { color: theme.inkDim }]}>{user.email || user.phone}</Text>
             </View>
-            <View style={[styles.rolePill, { backgroundColor: 'rgba(198,151,73,0.15)', borderColor: theme.brass }]}>
+            <View style={[styles.rolePill, { backgroundColor: 'rgba(217, 131, 36, 0.1)', borderColor: theme.brass }]}>
               <Text style={[styles.rolePillText, { color: theme.brass }]}>BUYER</Text>
             </View>
           </View>
         )}
 
-
         {/* Stats Row */}
         <View style={styles.statsRow}>
-          {[
-            { num: activeCount, label: 'ACTIVE' },
-            { num: totalBids,   label: 'BIDS PLACED' },
-            { num: totalRfqs,   label: 'TOTAL RFQS' },
-          ].map(s => (
-            <View key={s.label} style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-              <Text style={[styles.statNum, { color: theme.brass }]}>{s.num}</Text>
-              <Text style={[styles.statLabel, { color: theme.inkDim }]}>{s.label}</Text>
-            </View>
-          ))}
+          <View style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+            <Text style={[styles.statNum, { color: theme.rust }]}>{liveCount}</Text>
+            <Text style={[styles.statLabel, { color: theme.inkDim }]}>ACTIVE</Text>
+          </View>
+          <View style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+            <Text style={[styles.statNum, { color: theme.brass }]}>{totalBids}</Text>
+            <Text style={[styles.statLabel, { color: theme.inkDim }]}>BIDS RECEIVED</Text>
+          </View>
+          <View style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+            <Text style={[styles.statNum, { color: theme.olive }]}>{rfqs.length}</Text>
+            <Text style={[styles.statLabel, { color: theme.inkDim }]}>TOTAL RFQS</Text>
+          </View>
         </View>
 
         {/* Filter Chips */}
         <View style={styles.filterRow}>
           {[
-            { key: 'ALL',    label: `All (${requirements.length})` },
-            { key: 'LIVE',   label: `Live (${requirements.filter(r => r.status === 'LIVE').length})` },
-            { key: 'CLOSED', label: `Closed (${requirements.filter(r => r.status === 'CLOSED').length})` },
-          ].map(chip => {
-            const isSel = filter === chip.key;
+            { key: 'ALL', label: `All (${rfqs.length})` },
+            { key: 'LIVE', label: `Live (${liveCount})` },
+            { key: 'CLOSED', label: `Closed (${closedCount})` },
+          ].map(f => {
+            const isSel = filter === f.key;
             return (
               <TouchableOpacity
-                key={chip.key}
+                key={f.key}
+                onPress={() => setFilter(f.key)}
                 style={[
                   styles.chip,
-                  { backgroundColor: isSel ? theme.brass : theme.surface, borderColor: isSel ? theme.brass : theme.line },
+                  {
+                    backgroundColor: isSel ? theme.brass : theme.surface,
+                    borderColor: isSel ? theme.brass : theme.line,
+                  },
                 ]}
-                onPress={() => setFilter(chip.key)}
               >
-                <Text style={[styles.chipText, { color: isSel ? theme.primaryText : theme.inkDim }, isSel && { fontWeight: '700' }]}>
-                  {chip.label}
+                <Text
+                  style={[
+                    styles.chipText,
+                    {
+                      color: isSel ? theme.primaryText : theme.inkDim,
+                      fontWeight: isSel ? '700' : '400',
+                    },
+                  ]}
+                >
+                  {f.label}
                 </Text>
               </TouchableOpacity>
             );
@@ -235,6 +290,7 @@ export default function BuyerDashboardScreen({
                   ? () => onOpenClosedRoom(r.raw)
                   : undefined
               }
+              onDelete={() => handleDelete(r)}
             />
           ))
         )}

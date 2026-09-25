@@ -99,10 +99,10 @@ android {
     }
     signingConfigs {
         debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            storeFile file('swiftrfq.keystore')
+            storePassword 'swiftrfq123'
+            keyAlias 'swiftrfq'
+            keyPassword 'swiftrfq123'
         }
     }
     buildTypes {

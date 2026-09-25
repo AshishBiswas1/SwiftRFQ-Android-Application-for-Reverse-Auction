@@ -1,17 +1,22 @@
 {
   "expo": {
-    "name": "SwiftRFQ Mobile",
-    "slug": "swiftrfq-mobile",
+    "name": "SwiftRFQ",
+    "slug": "swiftrfq",
     "version": "1.0.0",
     "scheme": "swiftrfq",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./icons/icon.png",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "package": "com.swiftrfq.app"
+      "package": "com.swiftrfq.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./icons/icon.png",
+        "backgroundColor": "#17140F"
+      }
     },
     "web": {
       "bundler": "metro"
@@ -19,6 +24,7 @@
     "plugins": [
       "expo-web-browser",
       "@react-native-google-signin/google-signin",
+      "expo-notifications",
       [
         "expo-contacts",
         {
