@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, StatusBar, View, Text, TouchableOpacity, Animated } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, StatusBar, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 
@@ -507,7 +507,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
+      <View style={[styles.safeArea, { backgroundColor: theme.bg, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0 }]}>
         <StatusBar barStyle={theme.statusBar} backgroundColor={theme.bg} />
 
         <WavyBackground theme={theme}>
@@ -571,7 +571,7 @@ export default function App() {
 
         {/* Global Custom Themed Popup Container */}
         <CustomPopupHost theme={theme} />
-      </SafeAreaView>
+      </View>
     </SafeAreaProvider>
   );
 }
