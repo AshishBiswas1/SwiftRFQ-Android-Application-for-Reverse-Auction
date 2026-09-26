@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
       rfqs: '/api/rfqs',
       users: '/api/users',
     },
-    socketUrl: `http://localhost:${port}`,
+    socketUrl: `${req.protocol}://${req.get('host')}`,
   });
 });
 
