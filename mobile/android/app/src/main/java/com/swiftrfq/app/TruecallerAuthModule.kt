@@ -51,12 +51,16 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
                     pendingCodeVerifier = null
                     pendingState = null
                 }
+
+                override fun onSdkReady() {
+                    isInitialized = true
+                }
             }
 
             val tcSdkOptions = TcSdkOptions.Builder(activity, tcOAuthCallback)
                 .build()
 
-            TcSdk.getInstance().init(tcSdkOptions)
+            TcSdk.initAsync(tcSdkOptions)
             isInitialized = true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -65,7 +69,7 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun isUsable(promise: Promise) {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         if (!isInitialized && activity != null) {
             initSdk(activity)
         }
@@ -79,7 +83,7 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun authenticate(promise: Promise) {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         if (activity == null) {
             promise.reject("NO_ACTIVITY", "Current Android activity is unavailable")
             return
@@ -112,7 +116,13 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
 
             TcSdk.getInstance().setOAuthState(stateRequested)
             TcSdk.getInstance().setOAuthScopes(arrayOf("profile", "phone", "email"))
-            TcSdk.getInstance().getAuthorizationCode(activity)
+
+            val mainActivity = activity as? MainActivity
+            if (mainActivity != null) {
+                TcSdk.getInstance().getAuthorizationCode(mainActivity, mainActivity.tcLauncher)
+            } else {
+                promise.reject("NO_LAUNCHER", "Activity is not an instance of MainActivity")
+            }
         } catch (e: Exception) {
             pendingPromise = null
             pendingCodeVerifier = null
@@ -121,17 +131,15 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
-        if (activity != null) {
-            try {
-                TcSdk.getInstance().onActivityResultObtained(activity, requestCode, resultCode, data)
-            } catch (e: Exception) {
-                // Ignore if not handled
-            }
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+        try {
+            TcSdk.getInstance().onActivityResultObtained(activity, resultCode, data)
+        } catch (e: Exception) {
+            // Ignore if not handled
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         // No-op
     }
 }

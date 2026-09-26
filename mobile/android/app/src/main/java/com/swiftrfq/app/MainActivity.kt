@@ -9,10 +9,22 @@ import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import expo.modules.ReactActivityDelegateWrapper
 import com.truecaller.android.sdk.oAuth.TcSdk
 
 class MainActivity : ReactActivity() {
+  val tcLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
+    ActivityResultContracts.StartActivityForResult()
+  ) { result ->
+    try {
+      TcSdk.getInstance().onActivityResultObtained(this, result.resultCode, result.data)
+    } catch (e: Exception) {
+      // Ignore if Truecaller is not active
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Set the theme to AppTheme BEFORE onCreate to support
     // coloring the background, status bar, and navigation bar.
@@ -24,7 +36,7 @@ class MainActivity : ReactActivity() {
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
     super.onActivityResult(requestCode, resultCode, data)
     try {
-      TcSdk.getInstance().onActivityResultObtained(this, requestCode, resultCode, data)
+      TcSdk.getInstance().onActivityResultObtained(this, resultCode, data)
     } catch (e: Exception) {
       // Ignore if Truecaller is not active
     }
