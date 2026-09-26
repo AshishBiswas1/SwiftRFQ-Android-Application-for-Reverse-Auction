@@ -11,4 +11,12 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
-# Add any project specific keep options here:
+# Truecaller OAuth SDK
+-keep class com.truecaller.android.sdk.** { *; }
+-dontwarn com.truecaller.android.sdk.**
+
+# Socket.io & OkHttp
+-keep class io.socket.** { *; }
+-keep class okhttp3.** { *; }
+-dontwarn io.socket.**
+-dontwarn okhttp3.**

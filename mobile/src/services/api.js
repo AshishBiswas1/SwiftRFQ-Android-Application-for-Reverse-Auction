@@ -1,17 +1,32 @@
 import { Platform, NativeModules } from 'react-native';
+import Constants from 'expo-constants';
 
-const getDevHost = () => {
+export const getApiBaseUrl = () => {
+  // 1. Highest Priority: Deployed production backend URL via Expo environment variable
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
+  }
+
+  // 2. Extra config in app.json if provided
+  try {
+    const extraUrl = Constants?.expoConfig?.extra?.apiUrl;
+    if (extraUrl) return extraUrl.replace(/\/+$/, '');
+  } catch (_) {}
+
+  // 3. Dynamic Metro packager IP detection when developing
   try {
     const scriptURL = NativeModules?.SourceCode?.scriptURL;
     if (scriptURL) {
       const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
-      if (match && match[1]) return match[1];
+      if (match && match[1]) return `http://${match[1]}:5000`;
     }
   } catch (_) {}
-  return Platform.OS === 'android' ? '192.168.29.203' : 'localhost';
+
+  // 4. Default LAN fallback for local emulator / development testing
+  return Platform.OS === 'android' ? 'http://192.168.29.203:5000' : 'http://localhost:5000';
 };
 
-export const API_BASE_URL = `http://${getDevHost()}:5000`;
+export const API_BASE_URL = getApiBaseUrl();
 
 
 async function request(endpoint, options = {}) {
