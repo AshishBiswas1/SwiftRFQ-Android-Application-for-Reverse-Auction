@@ -29,6 +29,17 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+      android.util.Log.e("SwiftRFQCrash", "FATAL CRASH on thread ${thread.name}", throwable)
+      try {
+        val dir = getExternalFilesDir(null) ?: filesDir
+        val crashFile = java.io.File(dir, "crash.log")
+        crashFile.writeText("CRASH on thread ${thread.name}:\n" + android.util.Log.getStackTraceString(throwable))
+      } catch (_: Exception) {}
+      defaultHandler?.uncaughtException(thread, throwable)
+    }
+
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
     } catch (e: IllegalArgumentException) {

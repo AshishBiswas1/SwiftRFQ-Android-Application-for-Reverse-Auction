@@ -3,12 +3,18 @@ package com.swiftrfq.app
 import android.app.Activity
 import android.content.Intent
 import com.facebook.react.bridge.*
+import com.facebook.react.module.annotations.ReactModule
 import com.truecaller.android.sdk.oAuth.*
 import java.math.BigInteger
 import java.security.SecureRandom
 
+@ReactModule(name = TruecallerAuthModule.NAME)
 class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext), ActivityEventListener {
+
+    companion object {
+        const val NAME = "TruecallerAuthModule"
+    }
 
     private var pendingPromise: Promise? = null
     private var pendingCodeVerifier: String? = null
@@ -19,7 +25,7 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
         reactContext.addActivityEventListener(this)
     }
 
-    override fun getName(): String = "TruecallerAuthModule"
+    override fun getName(): String = NAME
 
     private fun initSdk(activity: Activity?) {
         if (activity == null || isInitialized) return
@@ -118,10 +124,11 @@ class TruecallerAuthModule(private val reactContext: ReactApplicationContext) :
             TcSdk.getInstance().setOAuthScopes(arrayOf("profile", "phone", "email"))
 
             val mainActivity = activity as? MainActivity
-            if (mainActivity != null) {
-                TcSdk.getInstance().getAuthorizationCode(mainActivity, mainActivity.tcLauncher)
+            val launcher = mainActivity?.tcLauncher
+            if (mainActivity != null && launcher != null) {
+                TcSdk.getInstance().getAuthorizationCode(mainActivity, launcher)
             } else {
-                promise.reject("NO_LAUNCHER", "Activity is not an instance of MainActivity")
+                promise.reject("NO_LAUNCHER", "Activity launcher is not available")
             }
         } catch (e: Exception) {
             pendingPromise = null

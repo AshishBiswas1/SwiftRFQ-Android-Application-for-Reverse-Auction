@@ -15,17 +15,23 @@ import expo.modules.ReactActivityDelegateWrapper
 import com.truecaller.android.sdk.oAuth.TcSdk
 
 class MainActivity : ReactActivity() {
-  val tcLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
-    ActivityResultContracts.StartActivityForResult()
-  ) { result ->
-    try {
-      TcSdk.getInstance().onActivityResultObtained(this, result.resultCode, result.data)
-    } catch (e: Exception) {
-      // Ignore if Truecaller is not active
-    }
-  }
+  var tcLauncher: ActivityResultLauncher<Intent>? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    try {
+      tcLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+      ) { result ->
+        try {
+          TcSdk.getInstance().onActivityResultObtained(this, result.resultCode, result.data)
+        } catch (e: Exception) {
+          // Ignore if Truecaller is not active
+        }
+      }
+    } catch (e: Exception) {
+      // Ignore if registration fails
+    }
+
     // Set the theme to AppTheme BEFORE onCreate to support
     // coloring the background, status bar, and navigation bar.
     // This is required for expo-splash-screen.
