@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Animated, StyleSheet, Easing, ScrollView, ActivityIndicator, NativeModules } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
-import { makeRedirectUri } from 'expo-auth-session';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { darkPalette, strings, animations } from '../theme/tokens';
@@ -11,17 +9,14 @@ import api from '../services/api';
 import { showCustomAlert } from '../services/customAlert';
 import TruecallerService from '../services/truecaller';
 
-WebBrowser.maybeCompleteAuthSession();
-
-let GoogleSignin = null;
 try {
-  if (NativeModules.RNGoogleSignin) {
-    GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
-    GoogleSignin.configure({
-      webClientId: '373619569246-hkblh4khr8ddh6ro4vda0l6p5s4fiaah.apps.googleusercontent.com',
-    });
-  }
-} catch (_) {}
+  GoogleSignin.configure({
+    webClientId: '373619569246-hkblh4khr8ddh6ro4vda0l6p5s4fiaah.apps.googleusercontent.com',
+    scopes: ['profile', 'email'],
+  });
+} catch (cfgErr) {
+  console.warn('[GoogleSignin Configure]', cfgErr);
+}
 
 
 // Topographic Wave Header SVG Component
@@ -225,34 +220,7 @@ export default function SplashScreen({ onContinue, theme = darkPalette, onToggle
     }
   };
 
-  // Google OAuth Hook - opens browser with account picker so any user can log in with their own Google account
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: '373619569246-hkblh4khr8ddh6ro4vda0l6p5s4fiaah.apps.googleusercontent.com',
-    webClientId: '373619569246-hkblh4khr8ddh6ro4vda0l6p5s4fiaah.apps.googleusercontent.com',
-    androidClientId: '373619569246-6quqohc64164m4jp21q87ealkbc72ps0.apps.googleusercontent.com',
-    redirectUri: makeRedirectUri({ scheme: 'swiftrfq' }),
-    scopes: ['profile', 'email', 'openid'],
-    responseType: 'token',
-    usePKCE: false,
-    extraParams: {
-      prompt: 'consent select_account',
-    },
-  });
 
-  // Handle Google OAuth response when user completes browser authentication
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { authentication, params } = response;
-      const accessToken = authentication?.accessToken || params?.access_token || null;
-      const idToken = authentication?.idToken || params?.id_token || null;
-      handleGoogleAuthResponse(accessToken, idToken);
-    } else if (response?.type === 'error') {
-      setAuthLoading(false);
-      showCustomAlert('Sign-In Error', response.error?.message || 'Google Sign-In failed.');
-    } else if (response?.type === 'cancel' || response?.type === 'dismiss') {
-      setAuthLoading(false);
-    }
-  }, [response]);
 
   const handleGoogleAuthResponse = async (accessToken, idToken, fallbackUserInfo = null) => {
     try {
@@ -333,32 +301,29 @@ export default function SplashScreen({ onContinue, theme = darkPalette, onToggle
     if (authLoading) return;
     setAuthLoading(true);
 
-    // 1. If native Google Play Services is available (@react-native-google-signin)
-    if (GoogleSignin) {
-      try {
-        await GoogleSignin.hasPlayServices();
-        const signInResult = await GoogleSignin.signIn();
-        const idToken = signInResult.data?.idToken || signInResult.idToken;
-        const user = signInResult.data?.user || signInResult.user;
-        await handleGoogleAuthResponse(null, idToken, user);
-        return;
-      } catch (nativeErr) {
-        console.warn('[Native Google Sign-In notice]', nativeErr);
-      }
-    }
-
-    // 2. Browser OAuth flow
     try {
-      if (promptAsync) {
-        const res = await promptAsync();
-        if (res.type === 'cancel' || res.type === 'dismiss') {
-          setAuthLoading(false);
-        }
-      } else {
-        setAuthLoading(false);
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const signInResult = await GoogleSignin.signIn();
+      const idToken = signInResult.data?.idToken || signInResult.idToken || null;
+      const user = signInResult.data?.user || signInResult.user || null;
+
+      if (!idToken && !user) {
+        throw new Error('No user account data returned by Google.');
       }
+
+      await handleGoogleAuthResponse(null, idToken, user);
     } catch (err) {
-      console.warn('Google prompt exception:', err);
+      if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+        console.log('[Google Sign-In] User cancelled account picker');
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        console.log('[Google Sign-In] Sign-in in progress');
+      } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        showCustomAlert('Google Play Services Required', 'Google Play Services is not available or needs an update on your device.');
+      } else {
+        console.warn('[Google Sign-In Error]', err);
+        showCustomAlert('Google Sign-In Notice', err.message || 'Unable to sign in with Google. Please try again.');
+      }
+    } finally {
       setAuthLoading(false);
     }
   };
