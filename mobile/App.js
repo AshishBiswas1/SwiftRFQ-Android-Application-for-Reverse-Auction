@@ -43,6 +43,7 @@ export default function App() {
   const [toastNotif, setToastNotif] = useState(null);
   const toastAnim = useRef(new Animated.Value(-150)).current;
   const toastTimer = useRef(null);
+  const [profileBackScreen, setProfileBackScreen] = useState('SETTINGS');
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -317,6 +318,7 @@ export default function App() {
         ...newRfqData,
         buyerId: user?._id || user?.id || 'usr-buyer',
         buyerName: user?.companyName || user?.name || 'Verified Buyer',
+        buyerPhone: user?.phone || '',
       };
       const res = await api.createRfq(payload);
       const created = res.data || {
@@ -396,6 +398,10 @@ export default function App() {
             onOpenClosedRoom={handleOpenClosedRoom}
             onDeleteRfq={handleDeleteRfq}
             onSelectTab={(tab) => setScreen(tab)}
+            onNavigateProfile={() => {
+              setProfileBackScreen('BUYER_DASHBOARD');
+              setScreen('PROFILE');
+            }}
             theme={theme}
             user={user}
           />
@@ -405,6 +411,10 @@ export default function App() {
           <CreateRfqScreen
             onCreateRfq={handleCreateRfq}
             onBack={() => setScreen('BUYER_DASHBOARD')}
+            onNavigateProfile={() => {
+              setProfileBackScreen('CREATE_RFQ');
+              setScreen('PROFILE');
+            }}
             theme={theme}
             user={user}
           />
@@ -434,6 +444,10 @@ export default function App() {
               if (closedRfq) setActiveRfq(closedRfq);
               setScreen('AUCTION_CLOSED');
             }}
+            onNavigateProfile={() => {
+              setProfileBackScreen('SUPPLIER_PORTAL');
+              setScreen('PROFILE');
+            }}
             theme={theme}
             user={user}
           />
@@ -459,6 +473,8 @@ export default function App() {
             onBack={() => setScreen(role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD')}
             onDelete={role === 'BUYER' ? handleDeleteRfq : undefined}
             theme={theme}
+            user={user}
+            role={role}
           />
         );
       case 'SUPPLIER_DIRECTORY':
@@ -479,7 +495,10 @@ export default function App() {
             theme={theme}
             onToggleTheme={handleToggleTheme}
             onLogout={handleLogout}
-            onNavigateProfile={() => setScreen('PROFILE')}
+            onNavigateProfile={() => {
+              setProfileBackScreen('SETTINGS');
+              setScreen('PROFILE');
+            }}
           />
         );
       case 'PROFILE':
@@ -494,7 +513,7 @@ export default function App() {
                 console.warn('Failed to update session:', e);
               }
             }}
-            onBack={() => setScreen('SETTINGS')}
+            onBack={() => setScreen(profileBackScreen || (role === 'SUPPLIER' ? 'SUPPLIER_PORTAL' : 'BUYER_DASHBOARD'))}
             theme={theme}
           />
         );

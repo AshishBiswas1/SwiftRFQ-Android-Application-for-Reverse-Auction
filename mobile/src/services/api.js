@@ -183,6 +183,12 @@ export const api = {
       body: JSON.stringify(supplierData),
     }),
 
+  updateFulfillmentStatus: (rfqId, status, notes) =>
+    request(`/api/rfqs/${rfqId}/fulfillment`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, notes }),
+    }),
+
   getUserById: (id) => request(`/api/users/${id}`),
 };
 

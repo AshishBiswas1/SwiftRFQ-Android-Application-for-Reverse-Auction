@@ -71,6 +71,10 @@ const rfqSchema = new mongoose.Schema(
       type: String,
       default: 'Buyer',
     },
+    buyerPhone: {
+      type: String,
+      default: '',
+    },
     invitedSuppliers: {
       type: [
         {
@@ -82,11 +86,24 @@ const rfqSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    buyerLocation: {
+      type: String,
+      default: '',
+    },
+    fulfillmentStatus: {
+      type: String,
+      enum: ['AWARDED', 'PO_ISSUED', 'DISPATCHED', 'DELIVERED'],
+      default: 'AWARDED',
+    },
     winner: {
       supplierId: String,
       supplierName: String,
+      supplierPhone: String,
+      supplierEmail: String,
+      supplierCompany: String,
       amount: Number,
       wonAt: Date,
+      metReserve: Boolean,
     },
     startedAt: {
       type: Date,

@@ -12,6 +12,7 @@ router.get('/rfqs', biddingController.getAllRfqs);
 router.get('/rfqs/:rfqId', biddingController.getRfqById);
 router.post('/rfqs', biddingController.createRfq);
 router.post('/rfqs/:rfqId/close', biddingController.closeRfq);
+router.patch('/rfqs/:rfqId/fulfillment', biddingController.updateFulfillmentStatus);
 router.delete('/rfqs/:rfqId', biddingController.deleteRfq);
 
 module.exports = router;

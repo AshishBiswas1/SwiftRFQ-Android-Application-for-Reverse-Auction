@@ -94,9 +94,18 @@ class RfqStore {
     let winner = null;
     if (room.bids && room.bids.length > 0) {
       const lowest = room.bids.find((b) => b.status === 'LOWEST') || room.bids[0];
+      const matchInvited = (room.invitedSuppliers || []).find(
+        (s) =>
+          (lowest.supplierId && String(s.id) === String(lowest.supplierId)) ||
+          (s.name && s.name.toLowerCase() === (lowest.supplierName || '').toLowerCase()) ||
+          (lowest.supplierPhone && s.phone === lowest.supplierPhone)
+      );
       winner = {
         supplierId: lowest.supplierId,
         supplierName: lowest.supplierName,
+        supplierPhone: lowest.supplierPhone || (matchInvited ? matchInvited.phone : '') || '',
+        supplierEmail: lowest.supplierEmail || (matchInvited ? matchInvited.email : '') || '',
+        supplierCompany: lowest.supplierCompany || (matchInvited ? matchInvited.company : '') || '',
         amount: Number(lowest.amount),
         wonAt: room.closedAt,
         metReserve: room.reservePrice ? Number(lowest.amount) <= Number(room.reservePrice) : true,
@@ -206,6 +215,9 @@ class RfqStore {
       rfqId: room.rfqId || rfqId,
       supplierId: bidData.supplierId || null,
       supplierName: bidData.supplierName || 'Anonymous Supplier',
+      supplierPhone: bidData.supplierPhone || '',
+      supplierEmail: bidData.supplierEmail || '',
+      supplierCompany: bidData.supplierCompany || '',
       amount: Number(bidData.amount),
       currency: bidData.currency || 'INR',
       unit: bidData.unit || room.unit || 'L',

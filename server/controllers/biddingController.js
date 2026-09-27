@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Bidding = require('../models/Bidding');
 const RFQ = require('../models/RFQ');
+const User = require('../models/User');
 const rfqStore = require('../models/rfqStore');
 const notificationService = require('../services/notificationService');
 
@@ -60,10 +61,34 @@ exports.getLowestBid = async (req, res) => {
 // POST /api/bids - Place bid via REST endpoint
 exports.submitBid = async (req, res) => {
   try {
-    const { rfqId, supplierId, supplierName, amount, currency, unit } = req.body;
+    const { rfqId, supplierId, supplierName, supplierPhone, supplierEmail, supplierCompany, amount, currency, unit } = req.body;
 
     if (!rfqId || amount === undefined) {
       return res.status(400).json({ success: false, message: 'rfqId and amount are required' });
+    }
+
+    // Enforce that supplier must have filled profile details before placing a bid
+    if (supplierId && mongoose.connection.readyState === 1 && mongoose.isValidObjectId(supplierId)) {
+      try {
+        const suppUser = await User.findById(supplierId);
+        if (suppUser) {
+          const missing = [];
+          if (!suppUser.name || !suppUser.name.trim()) missing.push('Full Name');
+          if (!suppUser.companyName || !suppUser.companyName.trim()) missing.push('Company Name');
+          const cleanPhone = (suppUser.phone || '').replace(/[^0-9]/g, '');
+          if (!cleanPhone || cleanPhone.length < 10) missing.push('10-digit Phone Number');
+          if (!suppUser.location || !suppUser.location.trim()) missing.push('City / Business Location');
+
+          if (missing.length > 0) {
+            return res.status(403).json({
+              success: false,
+              code: 'PROFILE_INCOMPLETE',
+              message: `Profile incomplete: Please fill in your ${missing.join(', ')} before placing bids.`,
+              missingFields: missing,
+            });
+          }
+        }
+      } catch (_) {}
     }
 
     const numericAmount = Number(amount);
@@ -97,6 +122,9 @@ exports.submitBid = async (req, res) => {
       rfqId: canonicalId,
       supplierId,
       supplierName,
+      supplierPhone,
+      supplierEmail,
+      supplierCompany,
       amount: numericAmount,
     });
 
@@ -176,6 +204,20 @@ exports.getAllRfqs = async (req, res) => {
     }
 
     const rooms = rfqStore.getAllRooms({ buyerId, role, supplierId });
+    rooms.forEach((room) => {
+      if (room.winner && !room.winner.supplierPhone) {
+        const match = (room.invitedSuppliers || []).find(
+          (s) =>
+            (room.winner.supplierId && String(s.id) === String(room.winner.supplierId)) ||
+            (s.name && s.name.toLowerCase() === (room.winner.supplierName || '').toLowerCase())
+        );
+        if (match) {
+          if (!room.winner.supplierPhone && match.phone) room.winner.supplierPhone = match.phone;
+          if (!room.winner.supplierEmail && match.email) room.winner.supplierEmail = match.email;
+          if (!room.winner.supplierCompany && match.company) room.winner.supplierCompany = match.company;
+        }
+      }
+    });
     res.json({ success: true, count: rooms.length, data: rooms });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -226,6 +268,7 @@ exports.createRfq = async (req, res) => {
       durationMinutes,
       buyerId,
       buyerName,
+      buyerPhone,
       invitedSuppliers,
     } = req.body;
 
@@ -234,6 +277,30 @@ exports.createRfq = async (req, res) => {
         success: false,
         message: 'Commodity, quantity, and starting ceiling price are required',
       });
+    }
+
+    // Enforce that buyer must have filled all profile details before starting an auction
+    if (buyerId && mongoose.connection.readyState === 1 && mongoose.isValidObjectId(buyerId)) {
+      try {
+        const buyerUser = await User.findById(buyerId);
+        if (buyerUser) {
+          const missing = [];
+          if (!buyerUser.name || !buyerUser.name.trim()) missing.push('Full Name');
+          if (!buyerUser.companyName || !buyerUser.companyName.trim()) missing.push('Company Name');
+          const cleanPhone = (buyerUser.phone || '').replace(/[^0-9]/g, '');
+          if (!cleanPhone || cleanPhone.length < 10) missing.push('10-digit Phone Number');
+          if (!buyerUser.location || !buyerUser.location.trim()) missing.push('City / Business Location');
+
+          if (missing.length > 0) {
+            return res.status(403).json({
+              success: false,
+              code: 'PROFILE_INCOMPLETE',
+              message: `Profile incomplete: Please fill in your ${missing.join(', ')} before starting an auction.`,
+              missingFields: missing,
+            });
+          }
+        }
+      } catch (_) {}
     }
 
     const rfqId = id || `RFQ-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -254,6 +321,7 @@ exports.createRfq = async (req, res) => {
       minDecrement: Number(minDecrement) || 0.5,
       buyerId: buyerId ? String(buyerId) : 'usr-buyer',
       buyerName: buyerName || 'Buyer',
+      buyerPhone: buyerPhone || '',
       invitedSuppliers: Array.isArray(invitedSuppliers) ? invitedSuppliers : [],
       status: 'LIVE',
       startedAt,
@@ -300,6 +368,28 @@ exports.closeRfq = async (req, res) => {
 
     const { room, winner, standings } = closeResult;
     const canonicalId = room.rfqId || room.id || rfqId;
+
+    // Enrich winner contact details from User database if available
+    if (winner && mongoose.connection.readyState === 1) {
+      try {
+        const queryOr = [];
+        if (winner.supplierId && mongoose.isValidObjectId(winner.supplierId)) {
+          queryOr.push({ _id: winner.supplierId });
+        }
+        if (winner.supplierName) {
+          queryOr.push({ name: winner.supplierName });
+        }
+        if (queryOr.length > 0) {
+          const userDoc = await User.findOne({ $or: queryOr });
+          if (userDoc) {
+            if (!winner.supplierPhone && userDoc.phone) winner.supplierPhone = userDoc.phone;
+            if (!winner.supplierEmail && userDoc.email) winner.supplierEmail = userDoc.email;
+            if (!winner.supplierCompany && userDoc.companyName) winner.supplierCompany = userDoc.companyName;
+            room.winner = winner;
+          }
+        }
+      } catch (_) {}
+    }
 
     // Update MongoDB if connected
     if (mongoose.connection.readyState === 1) {
@@ -408,5 +498,45 @@ exports.deleteRfq = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+// PATCH /api/rfqs/:rfqId/fulfillment - Update order fulfillment & logistics status
+exports.updateFulfillmentStatus = async (req, res) => {
+  try {
+    const { rfqId } = req.params;
+    const { status, notes } = req.body;
+
+    const allowed = ['AWARDED', 'PO_ISSUED', 'DISPATCHED', 'DELIVERED'];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Allowed values: ${allowed.join(', ')}`,
+      });
+    }
+
+    const room = rfqStore.getRoom(rfqId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'RFQ not found' });
+    }
+
+    room.fulfillmentStatus = status;
+    const canonicalId = room.rfqId || room.id || rfqId;
+
+    if (mongoose.connection.readyState === 1) {
+      try {
+        await RFQ.findOneAndUpdate({ rfqId: canonicalId }, { fulfillmentStatus: status });
+      } catch (_) {}
+    }
+
+    if (req.app.get('io')) {
+      const io = req.app.get('io');
+      io.to(`room-${canonicalId}`).emit('fulfillment_update', { rfqId: canonicalId, fulfillmentStatus: status, notes });
+      io.emit('fulfillment_update', { rfqId: canonicalId, fulfillmentStatus: status, notes });
+    }
+
+    res.json({ success: true, rfqId: canonicalId, fulfillmentStatus: status });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Bidding = require('../models/Bidding');
 const RFQ = require('../models/RFQ');
+const User = require('../models/User');
 const rfqStore = require('../models/rfqStore');
 const notificationService = require('../services/notificationService');
 
@@ -17,6 +18,28 @@ function registerAuctionHandlers(io) {
       for (const { room, winner, standings } of expiredRooms) {
         const rfqId = room.id;
         const roomKey = `room-${rfqId}`;
+
+        // Enrich winner contact details if available
+        if (winner && mongoose.connection.readyState === 1) {
+          try {
+            const queryOr = [];
+            if (winner.supplierId && mongoose.isValidObjectId(winner.supplierId)) {
+              queryOr.push({ _id: winner.supplierId });
+            }
+            if (winner.supplierName) {
+              queryOr.push({ name: winner.supplierName });
+            }
+            if (queryOr.length > 0) {
+              const userDoc = await User.findOne({ $or: queryOr });
+              if (userDoc) {
+                if (!winner.supplierPhone && userDoc.phone) winner.supplierPhone = userDoc.phone;
+                if (!winner.supplierEmail && userDoc.email) winner.supplierEmail = userDoc.email;
+                if (!winner.supplierCompany && userDoc.companyName) winner.supplierCompany = userDoc.companyName;
+                room.winner = winner;
+              }
+            }
+          } catch (_) {}
+        }
 
         console.log(`[Autonomous Engine] RFQ ${rfqId} (${room.commodity}) expired. Autonomous winner:`, winner ? winner.supplierName : 'None');
 
@@ -172,7 +195,17 @@ function registerAuctionHandlers(io) {
     // Place a new competitive bid in the reverse auction
     socket.on('place_bid', async (bidPayload, callback) => {
       try {
-        const { rfqId, supplierId, supplierName, amount, currency = 'INR', unit = 'L' } = bidPayload || {};
+        const {
+          rfqId,
+          supplierId,
+          supplierName,
+          supplierPhone,
+          supplierEmail,
+          supplierCompany,
+          amount,
+          currency = 'INR',
+          unit = 'L',
+        } = bidPayload || {};
 
         if (!rfqId || amount === undefined || isNaN(Number(amount))) {
           const err = 'Invalid bid payload: rfqId and numeric amount are required.';
@@ -227,6 +260,9 @@ function registerAuctionHandlers(io) {
           rfqId: canonicalId,
           supplierId,
           supplierName,
+          supplierPhone,
+          supplierEmail,
+          supplierCompany,
           amount: numericAmount,
           currency,
           unit,
@@ -292,6 +328,28 @@ function registerAuctionHandlers(io) {
         const { room, winner, standings } = closeResult;
         const canonicalId = room.rfqId || room.id || rfqId;
         const roomKey = `room-${canonicalId}`;
+
+        // Enrich winner contact details if available
+        if (winner && mongoose.connection.readyState === 1) {
+          try {
+            const queryOr = [];
+            if (winner.supplierId && mongoose.isValidObjectId(winner.supplierId)) {
+              queryOr.push({ _id: winner.supplierId });
+            }
+            if (winner.supplierName) {
+              queryOr.push({ name: winner.supplierName });
+            }
+            if (queryOr.length > 0) {
+              const userDoc = await User.findOne({ $or: queryOr });
+              if (userDoc) {
+                if (!winner.supplierPhone && userDoc.phone) winner.supplierPhone = userDoc.phone;
+                if (!winner.supplierEmail && userDoc.email) winner.supplierEmail = userDoc.email;
+                if (!winner.supplierCompany && userDoc.companyName) winner.supplierCompany = userDoc.companyName;
+                room.winner = winner;
+              }
+            }
+          } catch (_) {}
+        }
 
         // Broadcast to all participants in room
         io.to(roomKey).emit('auction_closed', {

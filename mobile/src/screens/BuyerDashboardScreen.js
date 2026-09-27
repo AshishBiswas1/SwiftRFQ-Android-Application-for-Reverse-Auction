@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking } from 'react-native';
 import { darkPalette } from '../theme/tokens';
 import { showCustomAlert } from '../services/customAlert';
+import { getMissingProfileFields } from '../services/profileValidation';
 
 // ── Status Pill ──────────────────────────────────────────────────────────────
 function StatusPill({ status, theme }) {
@@ -25,12 +26,29 @@ const pillSt = StyleSheet.create({
 });
 
 // ── Requirement Tile ─────────────────────────────────────────────────────────
-function RequirementTile({ name, meta, status, theme, onPress, onDelete }) {
+function RequirementTile({
+  name,
+  meta,
+  status,
+  theme,
+  raw,
+  onPress,
+  onDelete,
+  onCallWinner,
+  onWhatsAppWinner,
+}) {
   const isLive = status === 'LIVE';
   const isClosed = status === 'CLOSED';
   const isDraft = status === 'DRAFT';
 
   const accentColor = isLive ? theme.rust : isClosed ? theme.olive : theme.inkDim;
+
+  // Determine winner for closed auctions
+  const winner =
+    raw?.winner ||
+    (raw?.bids && raw.bids.length > 0
+      ? [...raw.bids].sort((a, b) => Number(a.amount) - Number(b.amount))[0]
+      : null);
 
   return (
     <TouchableOpacity
@@ -61,15 +79,76 @@ function RequirementTile({ name, meta, status, theme, onPress, onDelete }) {
         </View>
         <Text style={[tileSt.meta, { color: theme.inkDim }]}>{meta}</Text>
 
-        {/* Bottom row: progress indicator for live */}
+        {/* Live indicator */}
         {isLive && (
           <View style={tileSt.liveFooter}>
             <View style={[tileSt.liveDot, { backgroundColor: theme.rust }]} />
             <Text style={[tileSt.liveLabel, { color: theme.rust }]}>Auction in progress</Text>
           </View>
         )}
-        {isClosed && (
-          <Text style={[tileSt.closedLabel, { color: theme.olive }]}>Tap to view results →</Text>
+
+        {/* Closed Auction Winner Information & Direct Action Buttons */}
+        {isClosed && winner && (
+          <View style={{ marginTop: 6, gap: 5 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.olive }}>🏆 Winner:</Text>
+              <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.ink }} numberOfLines={1}>
+                {winner.supplierName} (₹{Number(winner.amount).toFixed(2)}/{raw?.unit || 'L'})
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 7, marginTop: 3 }}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: '#25D366',
+                  paddingVertical: 5,
+                  paddingHorizontal: 9,
+                  borderRadius: 8,
+                }}
+                onPress={(e) => {
+                  if (e && e.stopPropagation) e.stopPropagation();
+                  onWhatsAppWinner && onWhatsAppWinner(raw, winner);
+                }}
+              >
+                <Text style={{ fontSize: 11 }}>💬</Text>
+                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>WhatsApp</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: theme.surface2,
+                  borderColor: theme.line,
+                  borderWidth: 1,
+                  paddingVertical: 5,
+                  paddingHorizontal: 9,
+                  borderRadius: 8,
+                }}
+                onPress={(e) => {
+                  if (e && e.stopPropagation) e.stopPropagation();
+                  onCallWinner && onCallWinner(winner);
+                }}
+              >
+                <Text style={{ fontSize: 11 }}>📞</Text>
+                <Text style={{ color: theme.ink, fontSize: 11, fontWeight: '700' }}>Call</Text>
+              </TouchableOpacity>
+
+              <Text style={[tileSt.closedLabel, { color: theme.olive, alignSelf: 'center', marginLeft: 'auto' }]}>
+                Results ›
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {isClosed && !winner && (
+          <Text style={[tileSt.closedLabel, { color: theme.inkDim }]}>Closed with no bids →</Text>
         )}
       </View>
 
@@ -88,7 +167,7 @@ function RequirementTile({ name, meta, status, theme, onPress, onDelete }) {
             <Text style={{ fontSize: 13 }}>🗑️</Text>
           </TouchableOpacity>
         )}
-        {!isDraft && (
+        {!isDraft && !isClosed && (
           <Text style={[tileSt.arrow, { color: accentColor }]}>›</Text>
         )}
       </View>
@@ -129,16 +208,38 @@ export default function BuyerDashboardScreen({
   onOpenClosedRoom,
   onDeleteRfq,
   onSelectTab,
+  onNavigateProfile,
   theme = darkPalette,
   user,
 }) {
   const [filter, setFilter] = useState('ALL');
 
-  const liveCount = rfqs.filter(r => r.status === 'LIVE').length;
-  const closedCount = rfqs.filter(r => r.status === 'CLOSED').length;
+  const handleCreateNew = () => {
+    const missing = getMissingProfileFields(user);
+    if (missing.length > 0) {
+      showCustomAlert(
+        'Profile Incomplete',
+        `To launch a reverse auction session, please complete your profile details:\n• ${missing.join('\n• ')}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Complete Profile',
+            onPress: () => {
+              if (onNavigateProfile) onNavigateProfile();
+            },
+          },
+        ]
+      );
+      return;
+    }
+    if (onCreateNew) onCreateNew();
+  };
+
+  const liveCount = rfqs.filter((r) => r.status === 'LIVE').length;
+  const closedCount = rfqs.filter((r) => r.status === 'CLOSED').length;
   const totalBids = rfqs.reduce((acc, curr) => acc + (curr.bids ? curr.bids.length : 0), 0);
 
-  const visibleRfqs = rfqs.filter(r => {
+  const visibleRfqs = rfqs.filter((r) => {
     if (filter === 'LIVE') return r.status === 'LIVE';
     if (filter === 'CLOSED') return r.status === 'CLOSED';
     return true;
@@ -151,6 +252,50 @@ export default function BuyerDashboardScreen({
     meta: `${(r.quantity || 0).toLocaleString()} ${r.unit || 'L'} · ${r.bids ? r.bids.length : 0} bids`,
     status: r.status || 'LIVE',
   }));
+
+  const handleCallWinner = (winner) => {
+    const phone = winner?.supplierPhone;
+    const digits = (phone || '').replace(/[^0-9+]/g, '');
+    if (!digits) {
+      showCustomAlert(
+        'Phone Not Available',
+        `No direct mobile number was registered for ${winner?.supplierName || 'this supplier'}. You can contact them through the supplier directory.`
+      );
+      return;
+    }
+    Linking.openURL(`tel:${digits}`).catch(() => {
+      showCustomAlert('Unable to Dial', `Could not initiate call to ${digits}.`);
+    });
+  };
+
+  const handleWhatsAppWinner = (rfqItem, winner) => {
+    const phone = winner?.supplierPhone;
+    const digits = (phone || '').replace(/[^0-9]/g, '');
+    const commodity = rfqItem?.commodity || 'Requirement';
+    const unit = rfqItem?.unit || 'L';
+    const qty = Number(rfqItem?.quantity) || 1;
+    const amt = Number(winner?.amount) || 0;
+    const total = (qty * amt).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    const name = winner?.supplierName || 'Supplier';
+
+    const message = `Hi ${name}, congratulations! You have won our SwiftRFQ reverse auction for ${qty.toLocaleString()} ${unit} of ${commodity} at ₹${amt.toFixed(2)}/${unit} (Total Order: ₹${total}).\n\nPlease confirm dispatch and delivery details.`;
+
+    if (digits) {
+      const appUrl = `whatsapp://send?phone=${digits}&text=${encodeURIComponent(message)}`;
+      const webUrl = `https://api.whatsapp.com/send?phone=${digits}&text=${encodeURIComponent(message)}`;
+      Linking.canOpenURL(appUrl)
+        .then((supported) => {
+          if (supported) return Linking.openURL(appUrl);
+          return Linking.openURL(webUrl);
+        })
+        .catch(() => Linking.openURL(webUrl));
+    } else {
+      const shareUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+      Linking.openURL(shareUrl).catch(() => {
+        showCustomAlert('WhatsApp Not Available', 'Could not open WhatsApp on this device.');
+      });
+    }
+  };
 
   const handleDelete = (r) => {
     const targetRfq = r.raw || r;
@@ -228,7 +373,7 @@ export default function BuyerDashboardScreen({
             { key: 'ALL', label: `All (${rfqs.length})` },
             { key: 'LIVE', label: `Live (${liveCount})` },
             { key: 'CLOSED', label: `Closed (${closedCount})` },
-          ].map(f => {
+          ].map((f) => {
             const isSel = filter === f.key;
             return (
               <TouchableOpacity
@@ -276,13 +421,14 @@ export default function BuyerDashboardScreen({
             </Text>
           </View>
         ) : (
-          visible.map(r => (
+          visible.map((r) => (
             <RequirementTile
               key={r.key}
               name={r.name}
               meta={r.meta}
               status={r.status}
               theme={theme}
+              raw={r.raw}
               onPress={
                 r.status === 'LIVE'
                   ? () => onOpenLiveRoom(r.raw)
@@ -291,6 +437,8 @@ export default function BuyerDashboardScreen({
                   : undefined
               }
               onDelete={() => handleDelete(r)}
+              onCallWinner={handleCallWinner}
+              onWhatsAppWinner={handleWhatsAppWinner}
             />
           ))
         )}
@@ -298,7 +446,7 @@ export default function BuyerDashboardScreen({
         {/* New requirement CTA */}
         <TouchableOpacity
           style={[styles.primaryBtn, { backgroundColor: theme.brass }]}
-          onPress={onCreateNew}
+          onPress={handleCreateNew}
         >
           <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>+ New requirement</Text>
         </TouchableOpacity>

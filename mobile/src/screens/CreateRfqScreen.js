@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { darkPalette } from '../theme/tokens';
 import { showCustomAlert } from '../services/customAlert';
+import { getMissingProfileFields } from '../services/profileValidation';
 import api from '../services/api';
 
 const DURATION_PRESETS = [
@@ -25,7 +26,7 @@ const DURATION_PRESETS = [
 
 const UNIT_OPTIONS = ['L', 'kg', 'MT', 'Ton', 'Units'];
 
-export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalette, user }) {
+export default function CreateRfqScreen({ onCreateRfq, onBack, onNavigateProfile, theme = darkPalette, user }) {
   const [commodity, setCommodity] = useState('');
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('L');
@@ -97,6 +98,24 @@ export default function CreateRfqScreen({ onCreateRfq, onBack, theme = darkPalet
   };
 
   const handleSubmit = () => {
+    const missing = getMissingProfileFields(user);
+    if (missing.length > 0) {
+      showCustomAlert(
+        'Profile Incomplete',
+        `You must complete all your profile details before launching a reverse auction session:\n• ${missing.join('\n• ')}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Complete Profile',
+            onPress: () => {
+              if (onNavigateProfile) onNavigateProfile();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     if (!commodity.trim()) {
       showCustomAlert('Required Field', 'Please specify the Commodity name.');
       return;

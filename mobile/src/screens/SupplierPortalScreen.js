@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { darkPalette } from '../theme/tokens';
 import { showCustomAlert } from '../services/customAlert';
+import { getMissingProfileFields } from '../services/profileValidation';
 import { socket } from '../services/socket';
 import api from '../services/api';
 
@@ -34,25 +35,29 @@ function formatRemainingTime(expiresAt) {
 
 // ── Status Pill ──────────────────────────────────────────────────────────────
 function StatusPill({ status = 'LIVE', theme }) {
+  const isWon = status === 'WON';
   const isLive = status === 'LIVE';
-  const isClosed = status === 'CLOSED';
   return (
     <View
       style={[
         pillSt.pill,
         {
-          backgroundColor: isLive ? 'rgba(140,68,38,0.15)' : 'rgba(95,107,69,0.15)',
-          borderColor: isLive ? theme.rust : theme.olive,
+          backgroundColor: isWon
+            ? 'rgba(95,107,69,0.22)'
+            : isLive
+            ? 'rgba(140,68,38,0.15)'
+            : 'rgba(95,107,69,0.15)',
+          borderColor: isWon ? theme.olive : isLive ? theme.rust : theme.olive,
         },
       ]}
     >
       <View
         style={[
           pillSt.dot,
-          { backgroundColor: isLive ? theme.rust : theme.olive },
+          { backgroundColor: isWon ? theme.olive : isLive ? theme.rust : theme.olive },
         ]}
       />
-      <Text style={[pillSt.text, { color: isLive ? theme.rust : theme.olive }]}>
+      <Text style={[pillSt.text, { color: isWon ? theme.olive : isLive ? theme.rust : theme.olive }]}>
         {status}
       </Text>
     </View>
@@ -183,8 +188,9 @@ const tileSt = StyleSheet.create({
 });
 
 // ── Floor Auction Card (For Browsing All Rooms) ───────────────────────────────
-function FloorAuctionCard({ item, theme, onSelect }) {
+function FloorAuctionCard({ item, theme, onSelect, isWonByMe = false }) {
   const isLive = item.status === 'LIVE';
+  const isClosed = item.status === 'CLOSED';
   const [timerStr, setTimerStr] = useState(
     isLive ? formatRemainingTime(item.expiresAt) : 'Closed'
   );
@@ -212,7 +218,14 @@ function FloorAuctionCard({ item, theme, onSelect }) {
   return (
     <TouchableOpacity
       activeOpacity={0.82}
-      style={[floorSt.card, { backgroundColor: theme.surface, borderColor: isLive ? theme.rust : theme.line }]}
+      style={[
+        floorSt.card,
+        {
+          backgroundColor: isWonByMe ? 'rgba(95,107,69,0.08)' : theme.surface,
+          borderColor: isWonByMe ? theme.olive : isLive ? theme.rust : theme.line,
+          borderWidth: isWonByMe ? 1.8 : 1.2,
+        },
+      ]}
       onPress={() => onSelect(item)}
     >
       <View style={floorSt.headerRow}>
@@ -225,28 +238,66 @@ function FloorAuctionCard({ item, theme, onSelect }) {
             {(item.quantity || 0).toLocaleString()} {item.unit || 'L'} · {item.deliveryTerms || 'ex-works'} · By {item.buyerName || 'Buyer'}
           </Text>
         </View>
-        <StatusPill status={item.status} theme={theme} />
+        <StatusPill status={isWonByMe ? 'WON' : item.status} theme={theme} />
       </View>
+
+      {/* Won Celebration Banner */}
+      {isWonByMe && (
+        <View
+          style={{
+            backgroundColor: 'rgba(95,107,69,0.18)',
+            borderColor: theme.olive,
+            borderWidth: 1,
+            borderRadius: 8,
+            paddingVertical: 5,
+            paddingHorizontal: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Text style={{ fontSize: 13 }}>🏆</Text>
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.olive }}>
+            YOU WON THIS AUCTION · Winning Ask: ₹{price}/{item.unit || 'L'}
+          </Text>
+        </View>
+      )}
 
       <View style={[floorSt.divider, { backgroundColor: theme.line }]} />
 
       <View style={floorSt.bottomRow}>
         <View>
           <Text style={[floorSt.priceLabel, { color: theme.inkDim }]}>
-            {item.lowestBid != null ? 'CURRENT LOWEST' : 'STARTING CEILING'}
+            {isWonByMe
+              ? 'YOUR WINNING BID'
+              : item.lowestBid != null
+              ? 'CURRENT LOWEST'
+              : 'STARTING CEILING'}
           </Text>
-          <Text style={[floorSt.priceVal, { color: theme.brass }]}>
+          <Text style={[floorSt.priceVal, { color: isWonByMe ? theme.olive : theme.brass }]}>
             ₹{price} <Text style={{ fontSize: 12, color: theme.inkDim }}>/{item.unit || 'L'}</Text>
           </Text>
         </View>
 
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          <Text style={[floorSt.timer, { color: isLive ? theme.rust : theme.inkDim }]}>
-            ⏱ {isLive ? timerStr : 'Closed'}
+          <Text style={[floorSt.timer, { color: isWonByMe ? theme.olive : isLive ? theme.rust : theme.inkDim }]}>
+            {isWonByMe ? '🏆 Order Won' : isLive ? `⏱ ${timerStr}` : 'Closed'}
           </Text>
-          <View style={[floorSt.enterBtn, { backgroundColor: isLive ? theme.brass : theme.surface2 }]}>
-            <Text style={[floorSt.enterBtnText, { color: isLive ? theme.primaryText : theme.inkDim }]}>
-              {isLive ? 'Bid Live ⚡' : 'View Standings'}
+          <View
+            style={[
+              floorSt.enterBtn,
+              {
+                backgroundColor: isWonByMe ? theme.olive : isLive ? theme.brass : theme.surface2,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                floorSt.enterBtnText,
+                { color: isWonByMe || isLive ? theme.primaryText : theme.inkDim },
+              ]}
+            >
+              {isWonByMe ? 'View Winning Order 🏆' : isLive ? 'Bid Live ⚡' : 'View Standings'}
             </Text>
           </View>
         </View>
@@ -277,6 +328,7 @@ export default function SupplierPortalScreen({
   onBack,
   onRefreshRfqs,
   onShowWinner,
+  onNavigateProfile,
   theme = darkPalette,
   user,
 }) {
@@ -471,6 +523,24 @@ export default function SupplierPortalScreen({
   const isMeLowest = lowestSupplier === supplierName;
 
   const handlePlaceBid = async () => {
+    const missing = getMissingProfileFields(user);
+    if (missing.length > 0) {
+      showCustomAlert(
+        'Profile Incomplete',
+        `To place bids on the floor, please complete all your profile details:\n• ${missing.join('\n• ')}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Complete Profile',
+            onPress: () => {
+              if (onNavigateProfile) onNavigateProfile();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     const num = parseFloat(bidAmount);
     if (isNaN(num) || num <= 0) {
       showCustomAlert('Invalid Bid', 'Please enter a valid numeric bid amount.');
@@ -493,6 +563,9 @@ export default function SupplierPortalScreen({
         rfqId: roomId,
         supplierId,
         supplierName,
+        supplierPhone: user?.phone || '',
+        supplierEmail: user?.email || '',
+        supplierCompany: user?.companyName || '',
         amount: num,
         currency: 'INR',
         unit,
@@ -529,12 +602,26 @@ export default function SupplierPortalScreen({
 
   // ── VIEW 1: Browse ALL Bidding Rooms Floor (When no single room selected) ──
   if (!rfq) {
+    const isRfqWonByMe = (r) => {
+      if (r.status !== 'CLOSED' || !r.winner) return false;
+      const w = r.winner;
+      return Boolean(
+        (supplierId && String(w.supplierId) === String(supplierId)) ||
+        (supplierName && w.supplierName?.toLowerCase() === supplierName.toLowerCase()) ||
+        (user?.phone && w.supplierPhone && w.supplierPhone === user.phone)
+      );
+    };
+
+    const wonRfqs = rfqs.filter(isRfqWonByMe);
     const floorLiveCount = rfqs.filter((r) => r.status === 'LIVE').length;
     const floorClosedCount = rfqs.filter((r) => r.status === 'CLOSED').length;
+    const floorWonCount = wonRfqs.length;
     const myBidsPlacedCount = rfqs.reduce((acc, curr) => {
       if (!curr.bids || !Array.isArray(curr.bids)) return acc;
       const myCount = curr.bids.filter(
-        (b) => b.supplierId === supplierId || b.supplierName === supplierName
+        (b) =>
+          (supplierId && String(b.supplierId) === String(supplierId)) ||
+          (supplierName && b.supplierName?.toLowerCase() === supplierName.toLowerCase())
       ).length;
       return acc + myCount;
     }, 0);
@@ -542,6 +629,7 @@ export default function SupplierPortalScreen({
     const filteredFloorRfqs = rfqs.filter((r) => {
       if (floorFilter === 'LIVE') return r.status === 'LIVE';
       if (floorFilter === 'CLOSED') return r.status === 'CLOSED';
+      if (floorFilter === 'WON') return isRfqWonByMe(r);
       return true;
     });
 
@@ -575,23 +663,25 @@ export default function SupplierPortalScreen({
             <Text style={[styles.statLabel, { color: theme.inkDim }]}>ACTIVE</Text>
           </View>
           <View style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-            <Text style={[styles.statNum, { color: theme.brass }]}>{myBidsPlacedCount}</Text>
-            <Text style={[styles.statLabel, { color: theme.inkDim }]}>BIDS PLACED</Text>
+            <Text style={[styles.statNum, { color: theme.olive }]}>🏆 {floorWonCount}</Text>
+            <Text style={[styles.statLabel, { color: theme.inkDim }]}>BIDS WON</Text>
           </View>
           <View style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-            <Text style={[styles.statNum, { color: theme.olive }]}>{rfqs.length}</Text>
-            <Text style={[styles.statLabel, { color: theme.inkDim }]}>TOTAL RFQS</Text>
+            <Text style={[styles.statNum, { color: theme.brass }]}>{myBidsPlacedCount}</Text>
+            <Text style={[styles.statLabel, { color: theme.inkDim }]}>BIDS PLACED</Text>
           </View>
         </View>
 
         {/* Filter Pills */}
         <View style={styles.filterRow}>
-          {['ALL', 'LIVE', 'CLOSED'].map((f) => {
+          {['ALL', 'LIVE', 'WON', 'CLOSED'].map((f) => {
             const count =
               f === 'ALL'
                 ? rfqs.length
                 : f === 'LIVE'
                 ? floorLiveCount
+                : f === 'WON'
+                ? floorWonCount
                 : floorClosedCount;
             const active = floorFilter === f;
             return (
@@ -601,8 +691,8 @@ export default function SupplierPortalScreen({
                 style={[
                   styles.filterPill,
                   {
-                    backgroundColor: active ? theme.brass : theme.surface,
-                    borderColor: active ? theme.brass : theme.line,
+                    backgroundColor: active ? (f === 'WON' ? theme.olive : theme.brass) : theme.surface,
+                    borderColor: active ? (f === 'WON' ? theme.olive : theme.brass) : theme.line,
                   },
                 ]}
                 onPress={() => setFloorFilter(f)}
@@ -616,7 +706,7 @@ export default function SupplierPortalScreen({
                     },
                   ]}
                 >
-                  {f === 'ALL' ? 'All' : f === 'LIVE' ? 'Live' : 'Closed'} ({count})
+                  {f === 'ALL' ? 'All' : f === 'LIVE' ? 'Live' : f === 'WON' ? '🏆 Won' : 'Closed'} ({count})
                 </Text>
               </TouchableOpacity>
             );
@@ -626,28 +716,42 @@ export default function SupplierPortalScreen({
         <FlatList
           data={filteredFloorRfqs}
           keyExtractor={(item) => item.id || item._id || item.rfqId}
-          renderItem={({ item }) => (
-            <FloorAuctionCard
-              item={item}
-              theme={theme}
-              onSelect={(selected) => onSelectRfq && onSelectRfq(selected)}
-            />
-          )}
+          renderItem={({ item }) => {
+            const wonByMe = isRfqWonByMe(item);
+            return (
+              <FloorAuctionCard
+                item={item}
+                theme={theme}
+                isWonByMe={wonByMe}
+                onSelect={(selected) => {
+                  if (wonByMe && onShowWinner) {
+                    onShowWinner(selected);
+                  } else if (onSelectRfq) {
+                    onSelectRfq(selected);
+                  }
+                }}
+              />
+            );
+          }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handlePullRefresh} tintColor={theme.brass} />
           }
           ListEmptyComponent={
             <View style={[styles.emptyBox, { backgroundColor: theme.surface, borderColor: theme.line, marginTop: 30 }]}>
-              <Text style={{ fontSize: 32, marginBottom: 8 }}>🏷️</Text>
+              <Text style={{ fontSize: 32, marginBottom: 8 }}>{floorFilter === 'WON' ? '🏆' : '🏷️'}</Text>
               <Text style={[styles.emptyTitle, { color: theme.ink }]}>
-                {floorFilter === 'LIVE'
+                {floorFilter === 'WON'
+                  ? 'No won auctions yet'
+                  : floorFilter === 'LIVE'
                   ? 'No live auctions currently'
                   : floorFilter === 'CLOSED'
                   ? 'No closed auctions yet'
                   : 'No auctions available'}
               </Text>
               <Text style={[styles.emptyDesc, { color: theme.inkDim }]}>
-                {floorFilter === 'LIVE'
+                {floorFilter === 'WON'
+                  ? 'Submit the lowest ask on live reverse auctions to win supplier contracts and fulfill buyer purchase orders.'
+                  : floorFilter === 'LIVE'
                   ? 'There are no active auctions open for bidding at the moment. Pull down to refresh or check back soon.'
                   : 'When buyers post commodity requirements, they will appear here in real-time.'}
               </Text>
@@ -740,6 +844,44 @@ export default function SupplierPortalScreen({
             : 'Auction closed with no bids'}
         </Text>
       </View>
+
+      {/* Closed Auction Result Button */}
+      {!isRoomLive && (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          style={{
+            backgroundColor: isMeLowest ? theme.olive : theme.surface,
+            borderColor: isMeLowest ? theme.olive : theme.line,
+            borderWidth: 1.5,
+            paddingVertical: 13,
+            paddingHorizontal: 16,
+            borderRadius: 14,
+            alignItems: 'center',
+            marginBottom: 4,
+          }}
+          onPress={() => {
+            if (onShowWinner) {
+              onShowWinner({
+                ...rfq,
+                winner: rfq?.winner || { supplierName, amount: currentLowest },
+                status: 'CLOSED',
+              });
+            }
+          }}
+        >
+          <Text
+            style={{
+              color: isMeLowest ? theme.primaryText : theme.ink,
+              fontWeight: '800',
+              fontSize: 14,
+            }}
+          >
+            {isMeLowest
+              ? '🏆 View Winning Order & Contact Buyer →'
+              : '📊 View Final Standings & Results →'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Place Bid Input Form (Only shown when room is LIVE) */}
       {isRoomLive ? (
