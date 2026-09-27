@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import { darkPalette } from '../theme/tokens';
-import api from '../services/api';
+import api, { APP_DOWNLOAD_URL } from '../services/api';
 import { showCustomAlert } from '../services/customAlert';
 
 // ── Contact Detail Extractor Helper ──────────────────────────────────────────
@@ -329,7 +329,8 @@ export default function SupplierDirectoryScreen({ onBack, theme = darkPalette, u
   // ── WhatsApp & SMS Direct Invitation Handlers ──────────────────────────────
   const sendWhatsAppInvite = async (item) => {
     const phoneDigits = (item.phone || '').replace(/[^0-9]/g, '');
-    const text = `Hi ${item.name}, ${buyerName} has invited you to join their verified supplier group on SwiftRFQ. Download the app to participate in live reverse auctions and win orders: https://swiftrfq.app`;
+    const downloadUrl = APP_DOWNLOAD_URL || 'https://swiftrfq-android-application-for-reverse.onrender.com/download';
+    const text = `Hi ${item.name}, ${buyerName} has invited you to join their verified supplier group on SwiftRFQ.\n\n📲 Tap here to download the SwiftRFQ app in 1-click:\n${downloadUrl}\n\nOnce installed, sign up as a Supplier with your phone number to participate in live reverse auctions and win orders!`;
     const appUrl = phoneDigits
       ? `whatsapp://send?phone=${phoneDigits}&text=${encodeURIComponent(text)}`
       : `whatsapp://send?text=${encodeURIComponent(text)}`;
@@ -348,7 +349,8 @@ export default function SupplierDirectoryScreen({ onBack, theme = darkPalette, u
 
   const sendSmsInvite = async (item) => {
     const phoneDigits = (item.phone || '').replace(/[^0-9]/g, '');
-    const text = `Hi ${item.name}, ${buyerName} has invited you to join their supplier network on SwiftRFQ. Download the app to participate in live reverse auctions: https://swiftrfq.app`;
+    const downloadUrl = APP_DOWNLOAD_URL || 'https://swiftrfq-android-application-for-reverse.onrender.com/download';
+    const text = `Hi ${item.name}, ${buyerName} has invited you to join their supplier network on SwiftRFQ.\n\n📲 Download the app in 1-click:\n${downloadUrl}`;
     const separator = Platform.OS === 'ios' ? '&' : '?';
     const url = `sms:${phoneDigits}${separator}body=${encodeURIComponent(text)}`;
     try {

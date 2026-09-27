@@ -27,6 +27,13 @@ export const getApiBaseUrl = () => {
 };
 
 export const API_BASE_URL = getApiBaseUrl();
+export const APP_DOWNLOAD_URL =
+  API_BASE_URL &&
+  !API_BASE_URL.includes('localhost') &&
+  !API_BASE_URL.includes('192.168.') &&
+  !API_BASE_URL.includes('10.0.2.2')
+    ? `${API_BASE_URL}/download`
+    : 'https://swiftrfq-android-application-for-reverse.onrender.com/download';
 
 
 async function request(endpoint, options = {}) {
